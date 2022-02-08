@@ -9,11 +9,11 @@ from dotenv import load_dotenv
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 WRONGPATH = os.getenv('WRONGPATH')
-PATH = os.getenv('PATH')
+WORKING = os.getenv('WORKING')
 # workaround for environment differences, set working directory
 wdir = os.getcwd()
 if wdir == WRONGPATH:
-  os.chdir(PATH) 
+  os.chdir(WORKING) 
 wdir = os.getcwd()
 import random
 import discord
@@ -106,7 +106,10 @@ class Card:
       n = str(self.rank.short_name())+"_of_"+self.suit.long_name()
     #face cards get full rank name and use alt art
     else:
-      n = self.rank.long_name() + "_of_" +self.suit.long_name()+"2"
+      n = self.rank.long_name() + "_of_" +self.suit.long_name()
+      #if it's a jack queen or king, use alt art
+      if self.rank.value < 14 and self.rank.value >11:
+        n = n + "2"
     n = n.lower()
     filename = n + ".png"
     return filename
@@ -288,7 +291,7 @@ async def autosave():
     await asyncio.sleep(600)
     
 def embed(name):
-  file = discord.File(fp=name, spoiler=False, filename=name)
+  file = discord.File(fp="./cardimages/"+name, spoiler=False, filename=name)
   embed = discord.Embed()
   embed.set_image(url="attachment://"+name)
   return (file, embed)
