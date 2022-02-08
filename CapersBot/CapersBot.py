@@ -387,22 +387,19 @@ async def sleeve(ctx):
   else:
     mode = deck.output_mode
     s = deck.sleeve()
-    p = (None, None)
     if s[0] == "full":
       response = "You already have a sleeved card, it's a "+s[1].var_name(mode=mode)
     elif s[0] == "fail":
       response = "Nothing to sleeve, you can only sleeve the last flipped card"
     else:
       response = ctx.author.display_name+" sleeves their "+s[1].var_name(mode=mode)
-      if image_mode:
-        image_name = s[1].image_name()
-        p = embed(image_name)              
-  await ctx.send(response,file=p[0], embed=p[1])
+  await ctx.send(response)
 
 @bot.command(name='unsleeve', help='Unsleeve the last flipped card')
 async def unsleeve(ctx):
   owner = ctx.author.id
   deck = activeDecks.get(owner)
+  p = (None, None)
   if deck is None:
     response = "No such deck. Use the build command."  
   else:
@@ -412,7 +409,10 @@ async def unsleeve(ctx):
     else:
       mode = deck.output_mode
       response = ctx.author.display_name+" unsleeves their "+c.var_name(mode=mode)
-  await ctx.send(response)
+      if image_mode:
+        image_name = c.image_name()
+        p = embed(image_name)              
+  await ctx.send(response,file=p[0], embed=p[1])
 @bot.command(name='shuffle', help='Shuffle your discards and draw together')
 async def shuffleup(ctx):
   owner = ctx.author.id
