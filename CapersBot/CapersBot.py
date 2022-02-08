@@ -288,7 +288,7 @@ async def autosave():
     await asyncio.sleep(600)
     
 def embed(name):
-  file = discord.File(fp=name, spoiler=False, filename=name)
+  file = discord.File(fp="./cardimages/"+name, spoiler=False, filename=name)
   embed = discord.Embed()
   embed.set_image(url="attachment://"+name)
   return (file, embed)
