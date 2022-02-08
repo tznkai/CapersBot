@@ -4,18 +4,16 @@ import asyncio
 import os
 logging.basicConfig(level=logging.INFO)
 wdir = os.getcwd()
-if wdir == "WRONGPATH":
-  os.chdir("PATH") 
+if wdir == "/":
+  os.chdir("/home/pi/CapersBot/") 
 wdir = os.getcwd()
 import random
+import discord
 from discord.ext import commands
 #import os
-#from dotenv import load_dotenv
-#load_dotenv()
-#TOKEN = os.getenv('DISCORD_TOKEN')
-TOKEN = DISCORD_TOKEN
-
-#activeDecks = {}
+from dotenv import load_dotenv
+load_dotenv()
+TOKEN = os.getenv('DISCORD_TOKEN')
 
 #Enumerations
 from enum import Enum
@@ -45,7 +43,6 @@ class Rank(Enum):
     else:
       return self.name[0]
     
-
 class Suit(Enum):
   JOKER = 5
   SPADES = 4
@@ -67,6 +64,7 @@ class Suit(Enum):
     return self.name[0]
   def long_name(self):
     return self.name.capitalize()
+
 
 #working classes
 class Card:
@@ -94,6 +92,20 @@ class Card:
       return self.long_name()
     else:
       return self.long_name()
+  def image_name(self):
+    #naming, add .png
+    #Jokers don't get of
+    if self.suit == Suit.JOKER:
+      n = self.rank.long_name()+"_"+self.suit.long_name()
+    #ranks 2 - 10 use numbers
+    elif self.rank.value >1 and self.rank.value <11:
+      n = str(self.rank.short_name())+"_of_"+self.suit.long_name()
+    #face cards get full rank name and use alt art
+    else:
+      n = self.rank.long_name() + "_of_" +self.suit.long_name()+"2"
+    n = n.lower()
+    filename = n + ".png"
+    return filename
 
 
 class Deck:
@@ -101,9 +113,10 @@ class Deck:
     print("initializing")
     self.cards = []
     self.owner = owner
-    self.outputMode = "Long"
+    self.image_mode = True
+    self.output_mode = "Long"
     self.build()
-    self.reshuffle()
+    self.reshuffle()    
   def build(self):
     print("building")          
     suits = [Suit.CLUBS,Suit.DIAMONDS, Suit.HEARTS, Suit.SPADES]
@@ -134,12 +147,12 @@ class Deck:
     for c in self.cards:
       print(c.long_name() + " in: " + c.stack + ". Is up card: " + str(c.up))
 
-  def stacklist(self, stack):
-    l = []
+  def stack_list(self, stack):
+    L = []
     for c in self.cards:
       if c.stack == stack:
-        l.append(c)
-    return l
+        L.append(c)
+    return L
 
   def clear_last(self):
     for c in self.cards:
@@ -195,23 +208,25 @@ class Deck:
             return (True, c)
       return (False, None)
 
+#functions
+
 def name_cards(stack):
-  l = []
+  L = []
   for card in stack:
-    l.append( card.long_name() )
-  return l
+    L.append( card.long_name() )
+  return L
 
 def short_name_cards(stack):
-  l = []
+  L = []
   for card in stack:
-    l.append( card.short_name() )
-  return l
+    L.append( card.short_name() )
+  return L
 
 def emojify_cards(stack):
-  l = []
+  L = []
   for card in stack:
-    l.append( card.emoji() )
-  return l
+    L.append( card.emoji() )
+  return L
 
 def var_name_cards(stack, mode):
     if mode == "Emoji":
@@ -225,17 +240,20 @@ def var_name_cards(stack, mode):
 
 def suit_sift(stack, suit, sort):
   #takes a list of cards, returns a list of cards with matching suits
-  l = []
+  #returning a list should be made a method of Deck in future versions
+  L = []
   for card in stack:
     if card.suit == suit:
-      l.append(card)
-  if sort and len(l)>0:
-      l.sort(key=get_rank)
-  return l
+      L.append(card)
+  if sort and len(L)>0:
+      L.sort(key=get_rank)
+  return L
 
 def get_rank(card):
   rank = card.rank.value
   return rank
+
+#main path resumes
 
 pickleProblem = False
 #pickle check, define empty dict otherwise.
@@ -258,15 +276,20 @@ except Exception as e:
   pickleProblem = True
   print (e)
   
-#bot commands
+#bot functions
 async def autosave():
   while True:
     with open("activedecks.pickle", "wb") as f:
       pickle.dump(activeDecks,f)
     await asyncio.sleep(600)
     
+def embed(name):
+  file = discord.File(fp=name, spoiler=False, filename=name)
+  embed = discord.Embed()
+  embed.set_image(url="attachment://"+name)
+  return (file, embed)
 
-
+#bot commands
 bot = commands.Bot(command_prefix="+")
 
 @bot.event
@@ -306,9 +329,9 @@ async def show_discards(ctx):
     response = "No such deck. Use the build command."  
   else:
     #sort function
-    discards = deck.stacklist(stack="Discard")
+    discards = deck.stack_list(stack="Discard")
     if len(discards) > 0:
-      mode = deck.outputMode
+      mode = deck.output_mode
       spades = suit_sift(discards, Suit.SPADES, True)
       hearts = suit_sift(discards, Suit.HEARTS, True)
       diamonds = suit_sift(discards, Suit.DIAMONDS, True)
@@ -330,15 +353,23 @@ async def flip(ctx):
   owner = ctx.author.id
   deck = activeDecks.get(owner)
   if deck is None:
+    p = (None, None)
     response = "No such deck. Use the build command."  
   else:
-    mode = deck.outputMode
+    mode = deck.output_mode
+    image_mode = deck.image_mode
     c = deck.flip()
     if c is None:
       response = "Your deck is empty, reshuffle!"
     else:
       response = ctx.author.display_name+"\'s card is: "+c.var_name(mode=mode)
-  await ctx.send(response)
+      if image_mode:
+        image_name = c.image_name()
+        p = embed(image_name)           
+      else:
+        p = (None, None)        
+  await ctx.send(response,file=p[0], embed=p[1])
+  
 @bot.command(name='sleeve', help='Sleeve the last flipped card')
 async def sleeve(ctx):
   owner = ctx.author.id
@@ -346,7 +377,7 @@ async def sleeve(ctx):
   if deck is None:
     response = "No such deck. Use the build command."  
   else:
-    mode = deck.outputMode
+    mode = deck.output_mode
     s = deck.sleeve()
     if s[0] == "full":
       response = "You already have a sleeved card, it's a "+s[1].var_name(mode=mode)
@@ -366,7 +397,7 @@ async def unsleeve(ctx):
     if c is None:
       response = "You don't have a sleeved card"
     else:
-      mode = deck.outputMode
+      mode = deck.output_mode
       response = ctx.author.display_name+" unsleeves their "+c.var_name(mode=mode)
   await ctx.send(response)
 @bot.command(name='shuffle', help='Shuffle your discards and draw together')
@@ -389,7 +420,7 @@ async def nuke_card(ctx):
   else:
     t = deck.nuke()
     if t[0] == True:
-      mode = deck.outputMode
+      mode = deck.output_mode
       response = ctx.author.display_name + " nukes their "+t[1].var_name(mode=mode)
     elif t[0] == False:
       response = "Nothing to nuke, you can only nuke the last flipped card"
@@ -404,18 +435,18 @@ async def glance(ctx):
     response = "No such deck. Use the build command."  
   else:
     #set output mode
-    mode = deck.outputMode
+    mode = deck.output_mode
     # count discards
-    discardslen = str(len(deck.stacklist(stack="Discard")))
+    discardslen = str(len(deck.stack_list(stack="Discard")))
     # count cards
-    drawlen = str(len(deck.stacklist(stack="Draw")))
+    drawlen = str(len(deck.stack_list(stack="Draw")))
     # check sleeves
     sleeves = deck.sleeve_check()
     if sleeves is None:
       sleeves = "nothing up their sleeve"
     else: sleeves = sleeves.var_name(mode=mode) + " up their sleeve"
     # check nuked
-    destroyed = deck.stacklist(stack="Destroyed")
+    destroyed = deck.stack_list(stack="Destroyed")
     if destroyed == []:
       destroyed = "no cards"
     else:
@@ -440,11 +471,31 @@ async def output_mode(ctx, arg):
     response = "No such deck. Use the build command."  
   else:
     if mode in valid:
-      deck.outputMode = mode
+      deck.output_mode = mode
       response = ctx.author.display_name + "'s output mode is now: "+mode
     else:
       response = arg + "is not a valid mode"
   await ctx.send(response)  
+@bot.command(name='images', brief='On or Off', help='seting images on will ')
+async def image_mode(ctx, arg):
+  owner = ctx.author.id
+  deck = activeDecks.get(owner)
+  valid = ('On', 'Off')
+  mode = arg.capitalize()  
+  if deck is None:
+    response = "No such deck. Use the build command."  
+  else:
+    if mode in valid:
+      #convert on and off inputs into a boolean
+      if mode == "On":
+        deck.image_mode = True
+      elif mode == "Off":
+        deck.image_mode = False
+      response = ctx.author.display_name + "'s output mode is now: "+mode
+    else:
+      response = arg + "is not a valid mode"
+  await ctx.send(response)  
+
 #@output_mode.error
 #async def output_mode_error(self, ctx: commands.Context, error: commands.CommandError):
 #  if isinstance(error, commands.MissingRequiredArgument):
