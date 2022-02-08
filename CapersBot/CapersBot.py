@@ -12,7 +12,7 @@ WRONGPATH = os.getenv('WRONGPATH')
 PATH = os.getenv('PATH')
 # workaround for environment differences, set working directory
 wdir = os.getcwd()
-if wdir == WRONGPATH
+if wdir == WRONGPATH:
   os.chdir(PATH) 
 wdir = os.getcwd()
 import random
