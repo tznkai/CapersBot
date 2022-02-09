@@ -159,13 +159,6 @@ class Deck:
     for c in self.cards:
       print(c.long_name() + " in: " + c.stack + ". Is up card: " + str(c.up))
 
-  #def stack_list(self, stack):
-  #  L = []
-  #  for c in self.cards:
-  #    if c.stack == stack:
-  #      L.append(c)
-  #  return L
-
   def clear_last(self):
     for c in self.cards:
       c.up = False
@@ -183,15 +176,9 @@ class Deck:
         self.cards.append(c)
     return None
 
-  def sleeve_check(self):      
-    for c in self.cards:
-      if c.stack == "Sleeve":
-        return c
-    return None
-
   def sleeve(self):
-      sleeve = self.sleeve_check()
-      if sleeve is None:
+      sleeve = self.pile(attribute="Stack", member = "Sleeve", sort=False, reverse=False)
+      if sleeve == []:
         for c in self.cards:
           if c.up == True:
             c.up = False
@@ -200,8 +187,9 @@ class Deck:
         return ("fail", None)
       else:
         return ("full", sleeve)
+
   def unsleeve(self):
-      sleeve = self.sleeve_check()
+      sleeve = self.pile(attribute="Stack", member = "Sleeve", sort=False, reverse=False)
       if sleeve is None:       
         return None
       else:
@@ -211,6 +199,7 @@ class Deck:
             self.clear_last()
             c.up = True
         return sleeve
+
   def nuke(self):
     #returns a 2 member tuple with a bool and a Card object or None
     for c in self.cards:
@@ -219,6 +208,7 @@ class Deck:
           c.stack = "Destroyed"
           return (True, c)
     return (False, None)
+
   def pile(self, attribute, member, sort, reverse):
     #produces a list of Cards based on the pivoted attribute
     L = []
@@ -244,25 +234,22 @@ class Deck:
     pass
 #Deck ends
 
-
+#extract name from pile of cards
 def name_cards(pile):
   L = []
   for card in pile:
     L.append( card.long_name() )
   return L
-
 def short_name_cards(pile):
   L = []
   for card in pile:
     L.append( card.short_name() )
   return L
-
 def emojify_cards(pile):
   L = []
   for card in pile:
     L.append( card.emoji() )
   return L
-
 def var_name_cards(pile, mode):
     if mode == "Emoji":
       return emojify_cards(pile)
@@ -273,18 +260,6 @@ def var_name_cards(pile, mode):
     else: #default to long name
       return name_cards(pile)
 
-def suit_sift(pile, suit, sort):
-  #takes a list of cards, returns a list of cards with matching suits
-  #returning a list should be made a method of Deck in future versions
-  L = []
-  for card in stack:
-    if card.suit == suit:
-      L.append(card)
-  if sort and len(L)>0:
-      L.sort(key=get_rank)
-  return L
-
-
 #functions for sorting Card objects
 def get_rank(card):
   return card.rank.value
@@ -292,41 +267,49 @@ def get_stack(card):
   return card.stack
 def get_sort_value(card):
   return card.sort_value()
-#main path resumes
 
+
+
+#check if there's a problem with the autosave, if there is start from scratch
 pickleProblem = False
-#pickle check, define empty dict otherwise.
 import pickle
-try:
-  ad = open("activedecks.pickle", "rb")
-  activeDecks = pickle.load(ad)
-  ad.close()
-except (OSError, IOError) as e:
-  activeDecks={}
-  ad = open("activedecks.pickle", "wb")
-  pickle.dump(activeDecks, ad)
-  ad.close()
-  print(e)
-except EOFError as e:
-  print (e)
-  activeDecks = {}
-except Exception as e:
-  activeDecks = {}
-  pickleProblem = True
-  print (e)
+load_backup()
+def load_backup()
+  try:
+    ad = open("activedecks.pickle", "rb")
+    activeDecks = pickle.load(ad)
+    ad.close()
+  except (OSError, IOError) as e:
+    activeDecks={}
+    ad = open("activedecks.pickle", "wb")
+    pickle.dump(activeDecks, ad)
+    ad.close()
+    print(e)
+  except EOFError as e:
+    print (e)
+    activeDecks = {}
+  except Exception as e:
+    activeDecks = {}
+    pickleProblem = True
+    print (e)
   
 #bot functions
+#backup dictionary holding decks every 10 minutes
 async def autosave():
   while True:
     with open("activedecks.pickle", "wb") as f:
       pickle.dump(activeDecks,f)
     await asyncio.sleep(600)
-    
+
+
+#create card image embeds    
+#check if this can move to Card
 def embed(name):
   file = discord.File(fp="./cardimages/"+name, spoiler=False, filename=name)
   embed = discord.Embed()
   embed.set_image(url="attachment://"+name)
   return (file, embed)
+
 
 #bot commands
 bot = commands.Bot(command_prefix="+")
@@ -367,11 +350,10 @@ async def show_discards(ctx):
   if deck is None:
     response = "No such deck. Use the build command."  
   else:
-    #get discards, then sort if list is not empty
-    discards = deck.pile(attribute="Stack", member="Discard", sort=False, reverse=False)
+    #get sorted discards
+    discards = deck.pile(attribute="Stack", member="Discard", sort=True, reverse=False)
     if len(discards) > 0:
       mode = deck.output_mode
-      discards.sort(key=get_sort_value)
       discards = var_name_cards(pile=discards, mode=mode)
       response = ctx.author.display_name+"\'s discards are: "+str(discards)
     else:
@@ -475,8 +457,8 @@ async def glance(ctx):
     # count cards
     drawlen = str(len(deck.pile(attribute="Stack",member="Draw", sort=False, reverse=False)))
     # check sleeves
-    sleeves = deck.sleeve_check()
-    if sleeves is None:
+    sleeves = deck.pile(attribute="Stack", member = "Sleeve", sort=False, reverse=False)
+    if sleeves == []:
       sleeves = "nothing up their sleeve"
     else: sleeves = sleeves.var_name(mode=mode) + " up their sleeve"
     # check nuked
