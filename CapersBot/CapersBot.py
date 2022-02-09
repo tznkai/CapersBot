@@ -114,7 +114,10 @@ class Card:
     n = n.lower()
     filename = n + ".png"
     return filename
-
+  def sort_value(self):
+    s = self.suit.value * 100
+    r = self.rank.value
+    return s + r
 
 class Deck:
   def __init__(self,owner):
@@ -125,6 +128,7 @@ class Deck:
     self.output_mode = "Long"
     self.build()
     self.reshuffle()    
+
   def build(self):
     print("building")          
     suits = [Suit.CLUBS,Suit.DIAMONDS, Suit.HEARTS, Suit.SPADES]
@@ -136,7 +140,7 @@ class Deck:
         self.cards.append(Card(suit=s, rank=r, stack=init_stack, up=init_up))
     self.cards.append(Card(suit=Suit.JOKER,rank=Rank.GOOD,stack='Draw', up=False))
     self.cards.append(Card(suit=Suit.JOKER,rank=Rank.BAD,stack='Draw', up=False))
-      
+     
   def reshuffle(self):
     random.shuffle(self.cards)
     for c in self.cards:
@@ -155,12 +159,12 @@ class Deck:
     for c in self.cards:
       print(c.long_name() + " in: " + c.stack + ". Is up card: " + str(c.up))
 
-  def stack_list(self, stack):
-    L = []
-    for c in self.cards:
-      if c.stack == stack:
-        L.append(c)
-    return L
+  #def stack_list(self, stack):
+  #  L = []
+  #  for c in self.cards:
+  #    if c.stack == stack:
+  #      L.append(c)
+  #  return L
 
   def clear_last(self):
     for c in self.cards:
@@ -208,45 +212,68 @@ class Deck:
             c.up = True
         return sleeve
   def nuke(self):
-      #returns a 2 member tuple with a bool and a Card object or None
-      for c in self.cards:
-          if c.up == True:
-            c.up = False
-            c.stack = "Destroyed"
-            return (True, c)
-      return (False, None)
+    #returns a 2 member tuple with a bool and a Card object or None
+    for c in self.cards:
+        if c.up == True:
+          c.up = False
+          c.stack = "Destroyed"
+          return (True, c)
+    return (False, None)
+  def pile(self, attribute, member, sort, reverse):
+    #produces a list of Cards based on the pivoted attribute
+    L = []
+    #suits
+    if attribute == "Suit":
+      for card in self.cards:
+        if card.suit.name.capitalize() == member:
+          L.append(card)
+        if sort and len(L)>0:
+          L.sort(key=get_sort_value, reverse=reverse)
+      return L
+    elif attribute == "Stack":
+      for card in self.cards:
+        if card.stack == member:
+          L.append(card)
+        if sort and len(L)>0:
+          L.sort(key=get_sort_value, reverse=reverse)
+      return L
+    else:
+      # if asking for an invalid attribute, return None, fix the code
+      L = None
+      return L
+    pass
+#Deck ends
 
-#functions
 
-def name_cards(stack):
+def name_cards(pile):
   L = []
-  for card in stack:
+  for card in pile:
     L.append( card.long_name() )
   return L
 
-def short_name_cards(stack):
+def short_name_cards(pile):
   L = []
-  for card in stack:
+  for card in pile:
     L.append( card.short_name() )
   return L
 
-def emojify_cards(stack):
+def emojify_cards(pile):
   L = []
-  for card in stack:
+  for card in pile:
     L.append( card.emoji() )
   return L
 
-def var_name_cards(stack, mode):
+def var_name_cards(pile, mode):
     if mode == "Emoji":
-      return emojify_cards(stack)
+      return emojify_cards(pile)
     elif mode == "Short":
-      return short_name_cards(stack)
+      return short_name_cards(pile)
     elif mode == "Long":
-      return name_cards(stack)
+      return name_cards(pile)
     else: #default to long name
-      return name_cards(stack)
+      return name_cards(pile)
 
-def suit_sift(stack, suit, sort):
+def suit_sift(pile, suit, sort):
   #takes a list of cards, returns a list of cards with matching suits
   #returning a list should be made a method of Deck in future versions
   L = []
@@ -257,10 +284,14 @@ def suit_sift(stack, suit, sort):
       L.sort(key=get_rank)
   return L
 
-def get_rank(card):
-  rank = card.rank.value
-  return rank
 
+#functions for sorting Card objects
+def get_rank(card):
+  return card.rank.value
+def get_stack(card):
+  return card.stack
+def get_sort_value(card):
+  return card.sort_value()
 #main path resumes
 
 pickleProblem = False
@@ -336,23 +367,13 @@ async def show_discards(ctx):
   if deck is None:
     response = "No such deck. Use the build command."  
   else:
-    #sort function
-    discards = deck.stack_list(stack="Discard")
+    #get discards, then sort if list is not empty
+    discards = deck.pile(attribute="Stack", member="Discard", sort=False, reverse=False)
     if len(discards) > 0:
       mode = deck.output_mode
-      spades = suit_sift(discards, Suit.SPADES, True)
-      hearts = suit_sift(discards, Suit.HEARTS, True)
-      diamonds = suit_sift(discards, Suit.DIAMONDS, True)
-      clubs = suit_sift(discards, Suit.CLUBS, True)
-      jokers = suit_sift(discards, Suit.JOKER, True)
-      sortedDiscards = []
-      sortedDiscards.extend(spades)
-      sortedDiscards.extend(hearts)
-      sortedDiscards.extend(diamonds)
-      sortedDiscards.extend(clubs)
-      sortedDiscards.extend(jokers)
-      sortedDiscards = str(var_name_cards(stack=sortedDiscards, mode=mode))
-      response = ctx.author.display_name+"\'s discards are: "+sortedDiscards
+      discards.sort(key=get_sort_value)
+      discards = var_name_cards(pile=discards, mode=mode)
+      response = ctx.author.display_name+"\'s discards are: "+str(discards)
     else:
       response = ctx.author.display_name + " has no discarded cards."
   await ctx.send(response)
@@ -450,21 +471,20 @@ async def glance(ctx):
     #set output mode
     mode = deck.output_mode
     # count discards
-    discardslen = str(len(deck.stack_list(stack="Discard")))
+    discardslen = str(len(deck.pile(attribute="Stack",member="Discard", sort=False, reverse=False)))
     # count cards
-    drawlen = str(len(deck.stack_list(stack="Draw")))
+    drawlen = str(len(deck.pile(attribute="Stack",member="Draw", sort=False, reverse=False)))
     # check sleeves
     sleeves = deck.sleeve_check()
     if sleeves is None:
       sleeves = "nothing up their sleeve"
     else: sleeves = sleeves.var_name(mode=mode) + " up their sleeve"
     # check nuked
-    destroyed = deck.stack_list(stack="Destroyed")
+    destroyed = deck.pile(attribute="Stack", member="Destroyed", sort=False, reverse=False)
     if destroyed == []:
       destroyed = "no cards"
     else:
-      destroyed = var_name_cards(stack=destroyed, mode=mode)
-      destroyed = str(destroyed)
+      destroyed = str(var_name_cards(pile=destroyed, mode=mode))
     # check for flipped card
     for c in deck.cards:
       if c.up == True:
