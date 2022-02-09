@@ -1,25 +1,35 @@
 # CapersBot.py
-import logging
+import random
 import asyncio
+import discord
+from discord.ext import commands
+
+import logging
 #Turn on logging
+
+#load env variables
 import os
 logging.basicConfig(level=logging.INFO)
-#load env variables
+
 from dotenv import load_dotenv
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 WRONGPATH = os.getenv('WRONGPATH')
 WORKING = os.getenv('WORKING')
 BOT_DEV = os.getenv('BOT_DEV')
+
+#other constants
+AUTOSAVE_DURATION = 600
+
+
 # workaround for environment differences, set working directory
 wdir = os.getcwd()
 if wdir == WRONGPATH:
   os.chdir(WORKING) 
 wdir = os.getcwd()
-import random
-import discord
-from discord.ext import commands
 
+
+import enum
 #Enumerations
 from enum import Enum
 class Rank(Enum):
@@ -54,7 +64,7 @@ class Suit(Enum):
   HEARTS = 3
   DIAMONDS = 2
   CLUBS = 1
-  def emoji(self):
+  def emoji(self) -> str:
     if self.name == "CLUBS":
       return "\U00002667"
     elif self.name == "DIAMONDS":
@@ -65,30 +75,30 @@ class Suit(Enum):
       return "\U00002664"
     elif self.name == "JOKER":
       return "\U0001F0CF"
-  def short_name(self):
+  def short_name(self) -> str:
     return self.name[0]
-  def long_name(self):
+  def long_name(self) -> str:
     return self.name.capitalize()
 
 
 #working classes
 class Card:
-  def __init__(self, suit, rank, stack, up):
+  def __init__(self, suit:enum, rank:enum, stack:str, up:bool = False):
     self.suit = suit
     self.rank = rank
     self.stack = stack
     self.up = up
-  def short_name(self): 
+  def short_name(self) -> str: 
     return str( self.rank.short_name() )+ self.suit.short_name()
-  def long_name(self):
+  def long_name(self) -> str:
     if self.suit == Suit.JOKER:
       n = self.rank.long_name()+" "+self.suit.long_name()
     else:
       n = self.rank.long_name() + " of " +self.suit.long_name()
     return n
-  def emoji(self):
+  def emoji(self) -> str:
     return str( self.rank.emoji() ) + self.suit.emoji()
-  def var_name(self, mode):
+  def var_name(self, mode:str):
     if mode == "Emoji":
       return self.emoji()
     elif mode == "Short":
@@ -97,7 +107,7 @@ class Card:
       return self.long_name()
     else:
       return self.long_name()
-  def image_name(self):
+  def image_name(self) ->str:
     #naming, add .png
     #Jokers don't get of
     if self.suit == Suit.JOKER:
@@ -114,14 +124,15 @@ class Card:
     n = n.lower()
     filename = n + ".png"
     return filename
-  def sort_value(self):
+  def sort_value(self) -> int:
     s = self.suit.value * 100
     r = self.rank.value
     return s + r
+#Card ends
+
 
 class Deck:
-  def __init__(self,owner):
-    print("initializing")
+  def __init__(self,owner:int):
     self.cards = []
     self.owner = owner
     self.image_mode = True
@@ -130,7 +141,6 @@ class Deck:
     self.reshuffle()    
 
   def build(self):
-    print("building")          
     suits = [Suit.CLUBS,Suit.DIAMONDS, Suit.HEARTS, Suit.SPADES]
     ranks = [Rank.ACE,Rank.TWO,Rank.THREE,Rank.FOUR,Rank.FIVE,Rank.SIX,Rank.SEVEN,Rank.EIGHT,Rank.NINE,Rank.TEN, Rank.JACK,Rank.QUEEN,Rank.KING]
     init_stack = "Draw"
@@ -144,6 +154,7 @@ class Deck:
   def reshuffle(self):
     random.shuffle(self.cards)
     for c in self.cards:
+      c.up = False
       if c.stack == "Destroyed":
         pass
       elif c.stack == "Sleeve":
@@ -152,31 +163,28 @@ class Deck:
         pass
       else:
           c.stack = "Draw"
-          c.up = False
 
-  def show(self):
-    print("show method called")
-    for c in self.cards:
-      print(c.long_name() + " in: " + c.stack + ". Is up card: " + str(c.up))
+  #def show(self):
+  #  print("show method called")
+  #  for c in self.cards:
+  #    print(c.long_name() + " in: " + c.stack + ". Is up card: " + str(c.up))
 
   def clear_last(self):
     for c in self.cards:
       c.up = False
 
   def flip(self):
-    for count in range(len(self.cards)):
-      c = self.cards.pop(0)
+    #pass over deck until a Draw card is found
+    for i in range(len(self.cards)):
+      c = self.cards[i]
       if c.stack == "Draw":
         self.clear_last()
         c.up = True
         c.stack = "Discard"
-        self.cards.append(c)
         return c
-      else:
-        self.cards.append(c)
     return None
 
-  def sleeve(self):
+  def sleeve(self) ->tuple[str, Card]:
       sleeve = self.pile(attribute="Stack", member = "Sleeve", sort=False, reverse=False)
       if sleeve == []:
         for c in self.cards:
@@ -188,7 +196,7 @@ class Deck:
       else:
         return ("full", sleeve)
 
-  def unsleeve(self):
+  def unsleeve(self) ->Card:
       sleeve = self.pile(attribute="Stack", member = "Sleeve", sort=False, reverse=False)
       if sleeve is None:       
         return None
@@ -200,7 +208,7 @@ class Deck:
             c.up = True
         return sleeve
 
-  def nuke(self):
+  def nuke(self) -> tuple:
     #returns a 2 member tuple with a bool and a Card object or None
     for c in self.cards:
         if c.up == True:
@@ -209,48 +217,47 @@ class Deck:
           return (True, c)
     return (False, None)
 
-  def pile(self, attribute, member, sort, reverse):
+  def pile(self, attribute:str, member:str, sort:bool, reverse:bool) -> list:
     #produces a list of Cards based on the pivoted attribute
-    L = []
+    p = []
     #suits
     if attribute == "Suit":
       for card in self.cards:
         if card.suit.name.capitalize() == member:
-          L.append(card)
-        if sort and len(L)>0:
-          L.sort(key=get_sort_value, reverse=reverse)
-      return L
+          p.append(card)
+        if sort and len(p)>0:
+          p.sort(key=get_sort_value, reverse=reverse)
+      return p
     elif attribute == "Stack":
       for card in self.cards:
         if card.stack == member:
-          L.append(card)
-        if sort and len(L)>0:
-          L.sort(key=get_sort_value, reverse=reverse)
-      return L
+          p.append(card)
+        if sort and len(p)>0:
+          p.sort(key=get_sort_value, reverse=reverse)
+      return p
     else:
       # if asking for an invalid attribute, return None, fix the code
-      L = None
-      return L
-    pass
+      p = None
+      return p
 #Deck ends
 
-#extract name from pile of cards
-def name_cards(pile):
-  L = []
+#functions to extract name from pile of cards
+def name_cards(pile) ->str:
+  p = []
   for card in pile:
-    L.append( card.long_name() )
-  return L
-def short_name_cards(pile):
-  L = []
+    p.append( card.long_name() )
+  return p
+def short_name_cards(pile)->str:
+  p = []
   for card in pile:
-    L.append( card.short_name() )
-  return L
-def emojify_cards(pile):
-  L = []
+    p.append( card.short_name() )
+  return p
+def emojify_cards(pile)->str:
+  p = []
   for card in pile:
-    L.append( card.emoji() )
-  return L
-def var_name_cards(pile, mode):
+    p.append( card.emoji() )
+  return p
+def var_name_cards(pile:list, mode:str):
     if mode == "Emoji":
       return emojify_cards(pile)
     elif mode == "Short":
@@ -260,65 +267,68 @@ def var_name_cards(pile, mode):
     else: #default to long name
       return name_cards(pile)
 
-#functions for sorting Card objects
-def get_rank(card):
+#functions to use for sorting Card objects
+def get_rank(card)->int:
   return card.rank.value
-def get_stack(card):
+def get_stack(card)->str:
   return card.stack
 def get_sort_value(card):
   return card.sort_value()
 
 
-
-#check if there's a problem with the autosave, if there is start from scratch
-pickleProblem = False
+#Back up to pickle structure
 import pickle
-load_backup()
-def load_backup()
+active_decks ={}
+pickle_problem = False
+def load_backup():
   try:
     ad = open("activedecks.pickle", "rb")
-    activeDecks = pickle.load(ad)
+    active_decks = pickle.load(ad)
     ad.close()
   except (OSError, IOError) as e:
-    activeDecks={}
+    active_decks={}
     ad = open("activedecks.pickle", "wb")
-    pickle.dump(activeDecks, ad)
+    pickle.dump(active_decks, ad)
     ad.close()
     print(e)
   except EOFError as e:
     print (e)
-    activeDecks = {}
+    active_decks = {}
   except Exception as e:
-    activeDecks = {}
-    pickleProblem = True
+    active_decks = {}
+    pickle_problem = True
     print (e)
-  
-#bot functions
-#backup dictionary holding decks every 10 minutes
-async def autosave():
-  while True:
-    with open("activedecks.pickle", "wb") as f:
-      pickle.dump(activeDecks,f)
-    await asyncio.sleep(600)
 
+#bot functions
+#save to pickle function - todo: consider killing this entire process
+async def save(seconds):
+    while True:
+      print("Saving")      
+      with open("activedecks.pickle", "wb") as f:
+        pickle.dump(active_decks,f)
+      await asyncio.sleep(seconds)
 
 #create card image embeds    
-#check if this can move to Card
-def embed(name):
+#todo:check if this can move to Card
+def embed(name) ->tuple:
   file = discord.File(fp="./cardimages/"+name, spoiler=False, filename=name)
   embed = discord.Embed()
   embed.set_image(url="attachment://"+name)
   return (file, embed)
 
-
+#load backup before opening bot connections
+load_backup()
+print("checkpoint")
 #bot commands
 bot = commands.Bot(command_prefix="+")
 
 @bot.event
 async def on_ready():
+  print("onready")
   dev = await bot.fetch_user(BOT_DEV)
-  bot.loop.create_task(autosave())
-  if pickleProblem:  
+  bot.loop.create_task(save(AUTOSAVE_DURATION))
+  #notify if there was a problem with the pickle
+  if pickle_problem:
     await dev.send("there was a pickle problem")
   await dev.send("I have connected, working directory: "+str(wdir))
 #@bot.command(name='soundcheck', help='responds I can still hear you')
@@ -330,13 +340,13 @@ async def on_ready():
 async def new_deck(ctx):
   owner=ctx.author.id
   deck = Deck(owner = owner)
-  activeDecks.update({owner:deck})
+  active_decks.update({owner:deck})
   response = "built deck for " + ctx.author.display_name + " with ownerID: "+str(owner)  
   await ctx.send(response)
 #@bot.command(name='show', help='outputs the contents of a deck to console for debugging purposes only')
 #async def show_deck(ctx):
 #  owner = ctx.author.id
-#  deck = activeDecks.get(owner)
+#  deck = active_decks.get(owner)
 #  if deck is None:
 #    response = "No such deck. Use the build command."  
 #  else:
@@ -346,7 +356,7 @@ async def new_deck(ctx):
 @bot.command(name='discards', help='List all your discarded cards')
 async def show_discards(ctx):
   owner = ctx.author.id
-  deck = activeDecks.get(owner)
+  deck = active_decks.get(owner)
   if deck is None:
     response = "No such deck. Use the build command."  
   else:
@@ -359,32 +369,46 @@ async def show_discards(ctx):
     else:
       response = ctx.author.display_name + " has no discarded cards."
   await ctx.send(response)
-@bot.command(name='flip', help='Flip the top card off of your deck')
-async def flip(ctx):
-  owner = ctx.author.id
-  deck = activeDecks.get(owner)
-  if deck is None:
-    p = (None, None)
-    response = "No such deck. Use the build command."  
+@bot.command(name='flip', brief='Flip the top card of a deck', help='Flips a single card, by default targeting your own deck. You may target another player by display name')
+async def flip(ctx, target:str = "author"):
+  p = (None, None)
+  #force author to self as a workaround
+  target = "author"
+  if target == "author" or None: 
+    target_user = ctx.author
+    owner = ctx.author.id
+    owner_display_name = ctx.author.display_name
+    subject ="Your"
   else:
-    mode = deck.output_mode
-    image_mode = deck.image_mode
-    c = deck.flip()
-    if c is None:
-      response = "Your deck is empty, reshuffle!"
+    target_user = find_channel_user(target, ctx)
+    owner = target_user.id
+    owner_display_name = ctx.author.display_name
+    subject = "That"
+  #check if user can be found in channel, if not, kick to responserespond
+  if target_user is not None:
+    #get targeted deck
+    deck = active_decks.get(owner)
+    if deck is None:
+      response = "No such deck. Use the build command."  
     else:
-      response = ctx.author.display_name+"\'s card is: "+c.var_name(mode=mode)
-      if image_mode:
-        image_name = c.image_name()
-        p = embed(image_name)           
+      mode = deck.output_mode
+      image_mode = deck.image_mode
+      c = deck.flip()
+      if c is None:
+        response = subject + " deck is empty, reshuffle!"
       else:
-        p = (None, None)        
+        response = owner_display_name +"\'s card is: "+c.var_name(mode=mode)
+        if image_mode:
+          image_name = c.image_name()
+          p = embed(image_name)           
+        else:
+          p = (None, None)        
   await ctx.send(response,file=p[0], embed=p[1])
   
 @bot.command(name='sleeve', help='Sleeve the last flipped card')
 async def sleeve(ctx):
   owner = ctx.author.id
-  deck = activeDecks.get(owner)
+  deck = active_decks.get(owner)
   if deck is None:
     response = "No such deck. Use the build command."  
   else:
@@ -401,7 +425,7 @@ async def sleeve(ctx):
 @bot.command(name='unsleeve', help='Unsleeve the last flipped card')
 async def unsleeve(ctx):
   owner = ctx.author.id
-  deck = activeDecks.get(owner)
+  deck = active_decks.get(owner)
   p = (None, None)
   if deck is None:
     response = "No such deck. Use the build command."  
@@ -419,7 +443,7 @@ async def unsleeve(ctx):
 @bot.command(name='shuffle', help='Shuffle your discards and draw together')
 async def shuffleup(ctx):
   owner = ctx.author.id
-  deck = activeDecks.get(owner)
+  deck = active_decks.get(owner)
   if deck is None:
     response = "No such deck. Use the build command."  
   else:
@@ -430,7 +454,7 @@ async def shuffleup(ctx):
 @bot.command(name='nuke', help='nuke your last flipped card')
 async def nuke_card(ctx):
   owner = ctx.author.id
-  deck = activeDecks.get(owner)
+  deck = active_decks.get(owner)
   if deck is None:
     response = "No such deck. Use the build command."  
   else:
@@ -446,7 +470,7 @@ async def nuke_card(ctx):
 @bot.command(name='glance', help='Stats at a glance')
 async def glance(ctx):
   owner = ctx.author.id
-  deck = activeDecks.get(owner)
+  deck = active_decks.get(owner)
   if deck is None:
     response = "No such deck. Use the build command."  
   else:
@@ -477,9 +501,9 @@ async def glance(ctx):
   await ctx.send(response)
 
 @bot.command(name='output', brief='change the format of your cards', help='output accepts one argument. Valid arguments are: emoji, long, short')
-async def output_mode(ctx, arg):
+async def output_mode(ctx, arg = ""):
   owner = ctx.author.id
-  deck = activeDecks.get(owner)
+  deck = active_decks.get(owner)
   valid = ('Emoji', 'Long', 'Short')
   mode = arg.capitalize()  
   if deck is None:
@@ -489,16 +513,18 @@ async def output_mode(ctx, arg):
       deck.output_mode = mode
       response = ctx.author.display_name + "'s output mode is now: "+mode
     else:
-      response = arg + "is not a valid mode"
+      response = arg +  " is not a valid option. Please use one of:" +str(valid)
   await ctx.send(response)  
 @bot.command(name='images', brief='On or Off', help='seting images on will ')
-async def image_mode(ctx, arg):
+async def image_mode(ctx, arg:str = "" ):
   owner = ctx.author.id
-  deck = activeDecks.get(owner)
+  deck = active_decks.get(owner)
   valid = ('On', 'Off')
   mode = arg.capitalize()  
   if deck is None:
-    response = "No such deck. Use the build command."  
+    response = "No such deck. Use the build command."
+  #elif 
+  #  response =   
   else:
     if mode in valid:
       #convert on and off inputs into a boolean
@@ -508,7 +534,7 @@ async def image_mode(ctx, arg):
         deck.image_mode = False
       response = ctx.author.display_name + "'s image output mode is now: "+mode
     else:
-      response = arg + "is not a valid mode"
+      response = arg + " is not a valid option. Please use one of:" +str(valid)
   await ctx.send(response)  
 
 #@output_mode.error
@@ -519,11 +545,11 @@ async def image_mode(ctx, arg):
 #    message = "something went wrong!"
 #  await ctx.send(message)
 
+#make this development/standalone build only somehow
 @bot.command(name='save', brief='force the bot to save data', help='forces the bot to save data')
 async def man_save(ctx):
   response = "done"
-  with open("activedecks.pickle", "wb") as f:
-    pickle.dump(activeDecks, f)
+  save(loop=False,seconds=600)
   await ctx.send(response)
 
 bot.run(TOKEN)
