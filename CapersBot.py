@@ -11,11 +11,11 @@ import logging
 import os
 logging.basicConfig(level=logging.INFO)
 
-from dotenv import load_dotenv
-load_dotenv()
+#from dotenv import load_dotenv
+#load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
-WRONGPATH = os.getenv('WRONGPATH')
-WORKING = os.getenv('WORKING')
+#WRONGPATH = os.getenv('WRONGPATH')
+#WORKING = os.getenv('WORKING')
 BOT_DEV = os.getenv('BOT_DEV')
 
 #other constants
@@ -24,9 +24,9 @@ AUTOSAVE_DURATION = 600
 
 # workaround for environment differences, set working directory
 wdir = os.getcwd()
-if wdir == WRONGPATH:
-  os.chdir(WORKING) 
-wdir = os.getcwd()
+#if wdir == WRONGPATH:
+#  os.chdir(WORKING) 
+#wdir = os.getcwd()
 
 
 import enum
