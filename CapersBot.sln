@@ -1,9 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.0.32112.339
+VisualStudioVersion = 17.0.32126.317
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "CapersBot", "CapersBot\CapersBot.pyproj", "{D185109F-9A15-4ACC-86FD-BA42C623DBF9}"
+Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "CapersBot", "CapersBot.pyproj", "{D185109F-9A15-4ACC-86FD-BA42C623DBF9}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -18,6 +18,6 @@ Global
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
-		SolutionGuid = {D1FC4B1B-4A2E-4022-B360-C24BE14076F7}
+		SolutionGuid = {F36FCE6D-B4E9-401B-8857-02B2EF6F7D2B}
 	EndGlobalSection
 EndGlobal
