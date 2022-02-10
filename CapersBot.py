@@ -304,8 +304,6 @@ def load_backup():
         s3.download_fileobj(BUCKET, AWS_OBJECT, f)
     except ClientError:
       print (e)
-    except Exception as e: #catch other exceptions and flag as a pickle problem
-      print(e)
       pickle_problem = True
       
   try:
@@ -315,15 +313,18 @@ def load_backup():
       active_decks = pickle.load(ad)
   except (OSError, IOError) as e:
     #create a blank file if one is missing
+    print("error, creating blank file")
     print(e)
     with open(AUTOSAVE_NAME, "wb") as ad:
       pickle.dump(active_decks, ad)
   except EOFError as e:
     #this is fine
+    print("error, reverting to blank dictionary")
     print(e)
     active_decks = {}
   except Exception as e:
     #this is a problem
+    print("big error, reverting to blank dictionary")
     active_decks = {}
     pickle_problem = True
     print (e)
