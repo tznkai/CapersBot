@@ -395,7 +395,8 @@ async def show_discards(ctx):
     else:
       response = ctx.author.display_name + " has no discarded cards."
   await ctx.send(response)
-@bot.command(name='flip', brief='Flip the top card of a deck', help='Flips a single card, by default targeting your own deck. You may target another player by display name')
+#@bot.command(name='flip', brief='Flip the top card of a deck', help='Flips a single card, by default targeting your own deck. You may target another player by display name')
+@bot.command(name='flip', brief='Flip the top card of your deck', help='Flips a single card from the top of your deck')
 async def flip(ctx, target:str = "author"):
   p = (None, None)
   #force author to self as a workaround
