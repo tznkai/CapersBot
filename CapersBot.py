@@ -343,7 +343,7 @@ async def backup(seconds=1):
 
 #load backup before opening bot connections, register backup on exit
 load_backup()
-atexit.register(backup)
+#atexit.register(backup)
 print("all prebot is ready")
 #bot commands
 bot = commands.Bot(command_prefix="+")
@@ -379,21 +379,30 @@ async def new_deck(ctx):
 #    response = "Outputting deck "+str(owner)+" to console"
 #    deck.show()
 #  await ctx.send(response)
-@bot.command(name='discards', help='List all your discarded cards')
-async def show_discards(ctx):
+@bot.command(name='discards', brief='List all your discarded cards', help='Shows a list of your discards using your preferred output. To sort, add the Yes argument')
+async def show_discards(ctx, sort="No"):
   owner = ctx.author.id
   deck = active_decks.get(owner)
   if deck is None:
     response = "No such deck. Use the build command."  
   else:
-    #get sorted discards
-    discards = deck.pile(attribute="Stack", member="Discard", sort=True, reverse=False)
+    #validate sort
+    err = ""
+    if sort.capitalize() in ("Yes", "True", "Sort", "Sorted")
+      sort = True
+    elif sort.capitalize() in "No", "False", "Unsorted")
+      sort = False
+    else
+      err = "You gave an invalid option for sorting. Use Yes or No, default to No. "
+      sort 
+    #get  discards
+    discards = deck.pile(attribute="Stack", member="Discard", sort=sort, reverse=False)
     if len(discards) > 0:
       mode = deck.output_mode
       discards = var_name_cards(pile=discards, mode=mode)
-      response = ctx.author.display_name+"\'s discards are: "+str(discards)
+      response = err + ctx.author.display_name+"\'s discards are: "+str(discards)
     else:
-      response = ctx.author.display_name + " has no discarded cards."
+      response = err+ ctx.author.display_name + " has no discarded cards."
   await ctx.send(response)
 #@bot.command(name='flip', brief='Flip the top card of a deck', help='Flips a single card, by default targeting your own deck. You may target another player by display name')
 @bot.command(name='flip', brief='Flip the top card of your deck', help='Flips a single card from the top of your deck')
