@@ -1,33 +1,40 @@
 # CapersBot.py
+import logging
 import random
 import asyncio
+from botocore.exceptions import ClientError
 import discord
+import boto3
+from dotenv import load_dotenv
 from discord.ext import commands
-
-import logging
+import os
+import atexit
 #Turn on logging
 
 #load env variables
-import os
 logging.basicConfig(level=logging.INFO)
 
-#from dotenv import load_dotenv
-#load_dotenv()
-TOKEN = os.getenv('DISCORD_TOKEN')
-#WRONGPATH = os.getenv('WRONGPATH')
-#WORKING = os.getenv('WORKING')
+#constants
+AUTOSAVE_NAME = "activedecks.pickle"
+AUTOSAVE_INTERVAL = 600
+BUCKET = 'capersbot'
+AWS_OBJECT = 'activedecks.pickle'
 BOT_DEV = os.getenv('BOT_DEV')
-
-#other constants
-AUTOSAVE_DURATION = 600
+TOKEN = os.getenv('DISCORD_TOKEN')
 
 
-# workaround for environment differences, set working directory
-wdir = os.getcwd()
-#if wdir == WRONGPATH:
-#  os.chdir(WORKING) 
-#wdir = os.getcwd()
-
+use_aws = False
+s3 = ""
+if TOKEN is None:
+  #if no token, look for env file, assume dev machine, reset constants
+  load_dotenv()
+  #os.chdir(os.getenv('WORKING'))
+  BOT_DEV= os.getenv('BOT_DEV')
+  TOKEN = os.getenv('DISCORD_TOKEN')
+else:
+  #set aws, open client
+  use_aws = True
+  s3 = boto3.client('s3')
 
 import enum
 #Enumerations
@@ -275,39 +282,6 @@ def get_stack(card)->str:
 def get_sort_value(card):
   return card.sort_value()
 
-
-#Back up to pickle structure
-import pickle
-active_decks ={}
-pickle_problem = False
-def load_backup():
-  try:
-    ad = open("activedecks.pickle", "rb")
-    active_decks = pickle.load(ad)
-    ad.close()
-  except (OSError, IOError) as e:
-    active_decks={}
-    ad = open("activedecks.pickle", "wb")
-    pickle.dump(active_decks, ad)
-    ad.close()
-    print(e)
-  except EOFError as e:
-    print (e)
-    active_decks = {}
-  except Exception as e:
-    active_decks = {}
-    pickle_problem = True
-    print (e)
-
-#bot functions
-#save to pickle function - todo: consider killing this entire process
-async def save(seconds):
-    while True:
-      print("Saving")      
-      with open("activedecks.pickle", "wb") as f:
-        pickle.dump(active_decks,f)
-      await asyncio.sleep(seconds)
-
 #create card image embeds    
 #todo:check if this can move to Card
 def embed(name) ->tuple:
@@ -316,9 +290,61 @@ def embed(name) ->tuple:
   embed.set_image(url="attachment://"+name)
   return (file, embed)
 
-#load backup before opening bot connections
+#Back up to pickle structure
+import pickle
+active_decks ={}
+pickle_problem = False
+
+def load_backup():
+  #pull aws copy first
+  if use_aws == True:
+    try:
+      print("pulling from aws")
+      with open(AUTOSAVE_NAME, 'wb') as f:
+        s3.download_fileobj(BUCKET, AWS_OBJECT, f)
+    except ClientError:
+      print (e)
+    except Exception as e: #catch other exceptions and flag as a pickle problem
+      print(e)
+      pickle_problem = True
+      
+  try:
+    #read the local file into active_decks
+    print("reading file")
+    with open(AUTOSAVE_NAME, "rb") as ad:
+      active_decks = pickle.load(ad)
+  except (OSError, IOError) as e:
+    #create a blank file if one is missing
+    print(e)
+    with open(AUTOSAVE_NAME, "wb") as ad:
+      pickle.dump(active_decks, ad)
+  except EOFError as e:
+    #this is fine
+    print(e)
+    active_decks = {}
+  except Exception as e:
+    #this is a problem
+    active_decks = {}
+    pickle_problem = True
+    print (e)
+
+#backup to pickle
+async def backup(seconds=1):
+    while True:
+      print("Saving")      
+      with open(AUTOSAVE_NAME, "wb") as f:
+        pickle.dump(active_decks,f)
+      if use_aws == True:
+        print("uploading to aws")
+        with open(AUTOSAVE_NAME, "rb") as f:
+          s3.upload_fileobj(f, BUCKET, AWS_OBJECT)
+      await asyncio.sleep(seconds)
+
+
+#load backup before opening bot connections, register backup on exit
 load_backup()
-print("checkpoint")
+atexit.register(backup)
+print("all prebot is ready")
 #bot commands
 bot = commands.Bot(command_prefix="+")
 
@@ -326,11 +352,11 @@ bot = commands.Bot(command_prefix="+")
 async def on_ready():
   print("onready")
   dev = await bot.fetch_user(BOT_DEV)
-  bot.loop.create_task(save(AUTOSAVE_DURATION))
+  bot.loop.create_task(backup(AUTOSAVE_INTERVAL))
   #notify if there was a problem with the pickle
   if pickle_problem:
     await dev.send("there was a pickle problem")
-  await dev.send("I have connected, working directory: "+str(wdir))
+  await dev.send("I have connected, working directory: "+str(os.getcwd()))
 #@bot.command(name='soundcheck', help='responds I can still hear you')
 #async def echo_back(ctx):
 #  response = "I can still hear you, "+ctx.author.name
@@ -546,10 +572,11 @@ async def image_mode(ctx, arg:str = "" ):
 #  await ctx.send(message)
 
 #make this development/standalone build only somehow
-@bot.command(name='save', brief='force the bot to save data', help='forces the bot to save data')
-async def man_save(ctx):
-  response = "done"
-  save(loop=False,seconds=600)
-  await ctx.send(response)
+#@bot.command(name='save', brief='force the bot to save data', help='forces the bot to save data')
+#async def man_save(ctx):
+#  response = "done"
+#  backup()
+#  await ctx.send(response)
 
 bot.run(TOKEN)
+
