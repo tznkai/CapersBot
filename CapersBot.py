@@ -309,8 +309,10 @@ def load_backup():
   try:
     #read the local file into active_decks
     print("reading file")
+    print(active_decks.values)
     with open(AUTOSAVE_NAME, "rb") as ad:
       active_decks = pickle.load(ad)
+    print(active_decks.values)
   except (OSError, IOError) as e:
     #create a blank file if one is missing
     print("error, creating blank file")
