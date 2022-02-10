@@ -388,11 +388,11 @@ async def show_discards(ctx, sort="No"):
   else:
     #validate sort
     err = ""
-    if sort.capitalize() in ("Yes", "True", "Sort", "Sorted")
+    if sort.capitalize() in ("Yes", "True", "Sort", "Sorted"):
       sort = True
-    elif sort.capitalize() in "No", "False", "Unsorted")
+    elif sort.capitalize() in ("No", "False", "Unsorted"):
       sort = False
-    else
+    else:
       err = "You gave an invalid option for sorting. Use Yes or No, default to No. "
       sort 
     #get  discards
