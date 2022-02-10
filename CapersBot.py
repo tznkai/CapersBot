@@ -296,6 +296,8 @@ active_decks ={}
 pickle_problem = False
 
 def load_backup():
+  global active_decks
+  global pickle_problem
   #pull aws copy first
   if use_aws == True:
     try:
