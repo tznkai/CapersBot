@@ -22,8 +22,8 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="54deck.py" />
     <Compile Include="CapersBot.py" />
+    <Compile Include="capersdecks.py" />
   </ItemGroup>
   <ItemGroup>
     <Interpreter Include="env\">
