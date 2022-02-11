@@ -10,8 +10,6 @@ from discord.ext import commands
 import os
 import atexit
 #Turn on logging
-
-#load env variables
 logging.basicConfig(level=logging.INFO)
 
 #constants
@@ -304,7 +302,7 @@ def load_backup():
       print("pulling from aws")
       with open(AUTOSAVE_NAME, 'wb') as f:
         s3.download_fileobj(BUCKET, AWS_OBJECT, f)
-    except ClientError:
+    except ClientError as e:
       print (e)
       pickle_problem = True
       
@@ -344,14 +342,32 @@ async def backup(seconds=1):
         with open(AUTOSAVE_NAME, "rb") as f:
           s3.upload_fileobj(f, BUCKET, AWS_OBJECT)
       await asyncio.sleep(seconds)
-
+def backup_now():
+  print("Saving")
+  with open(AUTOSAVE_NAME, "wb") as f:
+    pickle.dump(active_decks,f)
+  if use_aws == True:
+    print("uploading to aws")
+    with open(AUTOSAVE_NAME, "rb") as f:
+      s3.upload_fileobj(f, BUCKET, AWS_OBJECT)
 
 #load backup before opening bot connections, register backup on exit
 load_backup()
-#atexit.register(backup)
+atexit.register(backup_now)
 print("all prebot is ready")
-#bot commands
-bot = commands.Bot(command_prefix="+")
+
+#check
+def from_guild(ctx):
+    return ctx.guild is not None
+
+#bot setup
+# Change the no_category default string
+help_command = commands.DefaultHelpCommand(
+    no_category = 'Commands')
+# set intents
+#intents = discord.Intents(messages=True, guilds=True, members=True)
+#set bot
+bot = commands.Bot(command_prefix="+")#, intents=intents)
 
 @bot.event
 async def on_ready():
@@ -368,22 +384,14 @@ async def on_ready():
   
 #  await ctx.send(response)
 @bot.command(name='build', help='builds or rebuilds your a fresh deck BE CAREFUL')
+@commands.guild_only()
 async def new_deck(ctx):
   owner=ctx.author.id
   deck = Deck(owner = owner)
   active_decks.update({owner:deck})
   response = "built deck for " + ctx.author.display_name + " with ownerID: "+str(owner)  
   await ctx.send(response)
-#@bot.command(name='show', help='outputs the contents of a deck to console for debugging purposes only')
-#async def show_deck(ctx):
-#  owner = ctx.author.id
-#  deck = active_decks.get(owner)
-#  if deck is None:
-#    response = "No such deck. Use the build command."  
-#  else:
-#    response = "Outputting deck "+str(owner)+" to console"
-#    deck.show()
-#  await ctx.send(response)
+
 @bot.command(name='discards', brief='List all your discarded cards', help='Shows a list of your discards using your preferred output. To sort, add the Yes argument')
 async def show_discards(ctx, sort="No"):
   owner = ctx.author.id
@@ -409,31 +417,35 @@ async def show_discards(ctx, sort="No"):
     else:
       response = err+ ctx.author.display_name + " has no discarded cards."
   await ctx.send(response)
-#@bot.command(name='flip', brief='Flip the top card of a deck', help='Flips a single card, by default targeting your own deck. You may target another player by display name')
-@bot.command(name='flip', brief='Flip the top card of your deck', help='Flips a single card from the top of your deck')
-async def flip(ctx, target:str = "author"):
+
+@bot.command(name='flip', brief='Flip the top card of a deck', help='Flips a single card, by default targeting your own deck. You may target another player)
+@commands.guild_only()
+async def flip(ctx, target:discord.Member = "Me"):
+  #check if caller has a deck this is used to set preferences
+  err = ""
   p = (None, None)
-  #force author to self as a workaround
-  target = "author"
-  if target == "author" or None: 
+  deck = active_decks.get(ctx.author.id)
+  if deck is None:
+    response = "You must build a deck to use this command."
+  else:
+    mode = deck.output_mode
+    image_mode = deck.image_mode
+  if target in ["me", "Me", None, ctx.author]: 
     target_user = ctx.author
     owner = ctx.author.id
     owner_display_name = ctx.author.display_name
     subject ="Your"
   else:
-    target_user = find_channel_user(target, ctx)
+    target_user = target
     owner = target_user.id
-    owner_display_name = ctx.author.display_name
+    owner_display_name = target_user.display_name
     subject = "That"
-  #check if user can be found in channel, if not, kick to responserespond
   if target_user is not None:
-    #get targeted deck
+    #change deck to targeted deck
     deck = active_decks.get(owner)
     if deck is None:
       response = "No such deck. Use the build command."  
     else:
-      mode = deck.output_mode
-      image_mode = deck.image_mode
       c = deck.flip()
       if c is None:
         response = subject + " deck is empty, reshuffle!"
@@ -445,8 +457,14 @@ async def flip(ctx, target:str = "author"):
         else:
           p = (None, None)        
   await ctx.send(response,file=p[0], embed=p[1])
+
+@flip.error
+async def flip_error(ctx, error):
+  if isinstance(error, commands.MemberNotFound):
+    await ctx.send('I could not find that member')
   
 @bot.command(name='sleeve', help='Sleeve the last flipped card')
+@commands.guild_only()
 async def sleeve(ctx):
   owner = ctx.author.id
   deck = active_decks.get(owner)
@@ -464,6 +482,7 @@ async def sleeve(ctx):
   await ctx.send(response)
 
 @bot.command(name='unsleeve', help='Unsleeve the last flipped card')
+@commands.guild_only()
 async def unsleeve(ctx):
   owner = ctx.author.id
   deck = active_decks.get(owner)
@@ -482,6 +501,7 @@ async def unsleeve(ctx):
         p = embed(image_name)              
   await ctx.send(response,file=p[0], embed=p[1])
 @bot.command(name='shuffle', help='Shuffle your discards and draw together')
+@commands.guild_only()
 async def shuffleup(ctx):
   owner = ctx.author.id
   deck = active_decks.get(owner)
@@ -493,6 +513,7 @@ async def shuffleup(ctx):
   await ctx.send(response)
 
 @bot.command(name='nuke', help='nuke your last flipped card')
+@commands.guild_only()
 async def nuke_card(ctx):
   owner = ctx.author.id
   deck = active_decks.get(owner)
@@ -508,7 +529,7 @@ async def nuke_card(ctx):
   await ctx.send(response)
 
 
-@bot.command(name='glance', help='Stats at a glance')
+@bot.command(name='glance', help='Stats at a glance. Command can be sent by DM')
 async def glance(ctx):
   owner = ctx.author.id
   deck = active_decks.get(owner)
@@ -541,7 +562,7 @@ async def glance(ctx):
     response = ctx.author.display_name + " has discarded " + discardslen + " cards, has " + drawlen + " cards left in their draw, has destroyed " + destroyed + " and has " + sleeves + ". " + up
   await ctx.send(response)
 
-@bot.command(name='output', brief='change the format of your cards', help='output accepts one argument. Valid arguments are: emoji, long, short')
+@bot.command(name='output', brief='change the format of your cards', help='output accepts one argument. Valid arguments are: emoji, long, short. Can be sent by DM' )
 async def output_mode(ctx, arg = ""):
   owner = ctx.author.id
   deck = active_decks.get(owner)
@@ -556,7 +577,7 @@ async def output_mode(ctx, arg = ""):
     else:
       response = arg +  " is not a valid option. Please use one of:" +str(valid)
   await ctx.send(response)  
-@bot.command(name='images', brief='On or Off', help='seting images on will ')
+@bot.command(name='images', brief='Show card images or not ', help='On or Off. Images display during flip and discards commands. Can be sent by DM')
 async def image_mode(ctx, arg:str = "" ):
   owner = ctx.author.id
   deck = active_decks.get(owner)
@@ -576,8 +597,71 @@ async def image_mode(ctx, arg:str = "" ):
       response = ctx.author.display_name + "'s image output mode is now: "+mode
     else:
       response = arg + " is not a valid option. Please use one of:" +str(valid)
-  await ctx.send(response)  
+  await ctx.send(response) 
 
+@bot.command(name='peek', brief='Peek the top of a deck', help='without arguments, peek targets your own deck, but you must provide both arguments to target someone else\'s deck.')
+@commands.check(from_guild)
+async def peek(ctx, count:int = 1, target: discord.Member ="Me"):
+  #check if caller has a deck this is used to set preferences
+  deck = active_decks.get(ctx.author.id)
+  if deck is None:
+    response = "you must build a deck to use this command."
+  else:
+    output_mode = deck.output_mode  
+    #target self by default, allow converter to handle the rest
+    if target in ["me", "Me", None]: 
+      target_user = ctx.author
+      owner = ctx.author.id
+      owner_display_name = ctx.author.display_name
+      subject ="Your"
+    else:
+      target_user = target
+      owner = target_user.id
+      owner_display_name = target_user.display_name
+      subject = "That"
+    #get targeted deck    
+    deck = active_decks.get(owner)
+    if deck is None:
+      response = "No such deck. Use the build command."  
+    else:
+      mode = deck.output_mode
+      image_mode = deck.image_mode
+      #get the draw deck
+      pile = deck.pile(attribute="Stack", member = "Draw", sort=False, reverse=False)
+      #check for empty
+      if pile == []:
+        response = subject + " deck is empty, reshuffle!"
+      #check for too short
+      elif len(pile) < count:
+        response = subject + " deck doesn't have that many cards left"    
+      else:
+        #append elements off of the pile and into the deck
+        peek_pile = []
+        for i in range(count):
+          peek_pile.append(pile[i])
+        dm = owner_display_name +"\'s top cards are: " + str(var_name_cards(pile=peek_pile, mode=output_mode))
+        await ctx.author.send(dm)
+        if target_user == ctx.author:
+          response = ctx.author.display_name + " peeks at the top " + str(count) + " cards of their own deck"
+        else:
+          response = ctx.author.display_name + " peeks at the top " + str(count) + " cards of " + owner_display_name + "\'s deck"
+  await ctx.send(response)
+
+@peek.error
+async def peek_error(ctx, error):
+  if isinstance(error, commands.MemberNotFound):
+    await ctx.send('I could not find that member')
+
+#@bot.command(name='here', brief='show who is here', help='dev command')
+#@commands.guild_only()
+#async def who_here(ctx):
+#  el = []
+#  for member in ctx.guild.members:
+#    find_channel_user("tznkai", ctx)
+#    el.append(member.display_name)
+#  response = "channel: " + ctx.channel.name + "guild members: " + str(len(ctx.guild.members)) + str(el)
+
+#  await ctx.send(response)  
 #@output_mode.error
 #async def output_mode_error(self, ctx: commands.Context, error: commands.CommandError):
 #  if isinstance(error, commands.MissingRequiredArgument):
@@ -591,6 +675,17 @@ async def image_mode(ctx, arg:str = "" ):
 #async def man_save(ctx):
 #  response = "done"
 #  backup()
+#  await ctx.send(response)
+
+#@bot.command(name='show', help='outputs the contents of a deck to console for debugging purposes only')
+#async def show_deck(ctx):
+#  owner = ctx.author.id
+#  deck = active_decks.get(owner)
+#  if deck is None:
+#    response = "No such deck. Use the build command."  
+#  else:
+#    response = "Outputting deck "+str(owner)+" to console"
+#    deck.show()
 #  await ctx.send(response)
 
 bot.run(TOKEN)
