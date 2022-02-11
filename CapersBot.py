@@ -383,7 +383,7 @@ async def on_ready():
 #  response = "I can still hear you, "+ctx.author.name
   
 #  await ctx.send(response)
-@bot.command(name='build', help='builds or rebuilds your a fresh deck BE CAREFUL')
+@bot.command(name='build', brief='Do this once', help='builds or rebuilds you a fresh deck. This eliminates all of your preferences.')
 @commands.guild_only()
 async def new_deck(ctx):
   owner=ctx.author.id
@@ -418,7 +418,7 @@ async def show_discards(ctx, sort="No"):
       response = err+ ctx.author.display_name + " has no discarded cards."
   await ctx.send(response)
 
-@bot.command(name='flip', brief='Flip the top card of a deck', help='Flips a single card, by default targeting your own deck. You may target another player)
+@bot.command(name='flip', brief='Flip the top card of a deck', help='Flips a single card, by default targeting your own deck. You may target another player')
 @commands.guild_only()
 async def flip(ctx, target:discord.Member = "Me"):
   #check if caller has a deck this is used to set preferences
@@ -463,7 +463,7 @@ async def flip_error(ctx, error):
   if isinstance(error, commands.MemberNotFound):
     await ctx.send('I could not find that member')
   
-@bot.command(name='sleeve', help='Sleeve the last flipped card')
+@bot.command(name='sleeve', brief='Sleeve the last flipped card', help = 'Put the last flipped card in your sleeve, use the unsleeve command later. Maximum one in a sleeve, does not dynamically track the top of your discard.')
 @commands.guild_only()
 async def sleeve(ctx):
   owner = ctx.author.id
@@ -481,7 +481,7 @@ async def sleeve(ctx):
       response = ctx.author.display_name+" sleeves their "+s[1].var_name(mode=mode)
   await ctx.send(response)
 
-@bot.command(name='unsleeve', help='Unsleeve the last flipped card')
+@bot.command(name='unsleeve', brief='Unsleeve the last flipped card', help = 'Unsleeve the last flipped card. This becomes the top of the discard if you made a mistake.')
 @commands.guild_only()
 async def unsleeve(ctx):
   owner = ctx.author.id
