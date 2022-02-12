@@ -1,6 +1,5 @@
 #capersdecks.py
 import enum
-from pickle import FALSE
 import random
 #Enumerations
 from enum import Enum
@@ -181,29 +180,35 @@ class Deck:
       self.topdeck(i,"Destroyed")
       return self.cards[i]
 
-  def pile(self, attribute:str, member:str, sort:bool, reverse:bool) -> list:
+  def pile(self, attribute:str, member, sort:bool, reverse:bool, number = "all") -> list:
     #produces a list of Cards based on the pivoted attribute
     p = []
-    #suits
-    if attribute == "Suit":
-      for card in self.cards:
+    count = 0
+    #probably should make this an error instead 
+    if number == "all" or number > len(self.cards):
+      number = len(self.cards)
+    #iterate through deck, stop when count is full
+    for card in self.cards:
+      if attribute == "Suit":
         if card.suit.name.capitalize() == member:
+          count = count + 1
           p.append(card)
-        if sort and len(p)>0:
-          p.sort(key=get_sort_value, reverse=reverse)
-      return p
-    elif attribute == "Stack":
-      for card in self.cards:
+      elif attribute == "Stack":
         if card.stack == member:
+          count = count + 1
           p.append(card)
-        if sort and len(p)>0:
-          p.sort(key=get_sort_value, reverse=reverse)
-      return p
-    else:
-      # if asking for an invalid attribute, return None, fix the code
-      p = None
-      return p
-
+      elif attribute == "Any":
+          count = count +1
+          p.append(card)
+      else:
+        # if asking for an invalid attribute, return None, fix the code
+          return None
+      if count == number:
+        break
+    # sort the result if required
+    if sort and len(p)>0:
+      p.sort(key=get_sort_value, reverse=reverse)
+    return p
   def find_top(self, stack) -> int:
     # find the top of a stack
     for i in range (len(self.cards)):

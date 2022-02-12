@@ -1,5 +1,6 @@
 # CapersBot.py
 import logging
+import pickle
 import asyncio
 from typing import Type
 from botocore.exceptions import ClientError
@@ -40,7 +41,7 @@ from capersdecks import Rank
 from capersdecks import Suit
 from capersdecks import Card
 from capersdecks import Deck
-
+import cardimages
 #Back up to pickle structure
 import pickle
 active_decks ={}
@@ -109,16 +110,29 @@ load_backup()
 atexit.register(backup_now)
 print("all prebot is ready")
 
+#image maker - at runtime, takes open source cards and makes image lefts.
+#ingests a list of cards and constructs an image
+
 #Discord related functions:
+#checks
 def from_guild(ctx):
     return ctx.guild is not None
 
-#create card image embeds
+#embed constructor
 def embed_card(name) ->tuple:
-  file = discord.File(fp=CARD_PATH+name, spoiler=False, filename=name)
+  f = discord.File(fp=CARD_PATH+name, spoiler=False, filename=name)
   embed = discord.Embed()
   embed.set_image(url="attachment://"+name)
-  return (file, embed)
+  return (f, embed)
+
+def embed_bytes(bo):
+  bo.seek(0)
+  f = discord.File(bo, spoiler=False, filename='embed.png')
+  embed = discord.Embed()
+  embed.set_image(url="attachment://"+'embed.png')
+  print(f)
+  print(f.filename)
+  return (f, embed)
 
 #bot setup
 # Change the no_category default string
@@ -154,6 +168,7 @@ async def new_deck(ctx):
 
 @bot.command(name='discards', brief='List all your discarded cards', help='Shows a list of your discards using your preferred output. To sort, add the Yes argument')
 async def show_discards(ctx, sort="No"):
+  p = (None,None)
   owner = ctx.author.id
   deck = active_decks.get(owner)
   if deck is None:
@@ -172,11 +187,16 @@ async def show_discards(ctx, sort="No"):
     discards = deck.pile(attribute="Stack", member="Discard", sort=sort, reverse=False)
     if len(discards) > 0:
       mode = deck.output_mode
+      image_mode = deck.image_mode
+      if image_mode:
+        bo = cardimages.splay(discards)
+        p = embed_bytes(bo) #disable for now until sortition is up.
       discards = capersdecks.var_name_cards(pile=discards, mode=mode)
       response = err + ctx.author.display_name+"\'s discards are: "+str(discards)
+      
     else:
       response = err+ ctx.author.display_name + " has no discarded cards."
-  await ctx.send(response)
+  await ctx.send(response,file=p[0], embed=p[1])
 
 @bot.command(name='flip', brief='Flip the top card of a deck', help='Flips a single card, by default targeting your own deck. You may target another player')
 @commands.guild_only()
