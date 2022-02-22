@@ -187,7 +187,8 @@ async def show_discards(ctx, sort="No"):
     if len(discards) > 0:
       mode = deck.output_mode
       image_mode = deck.image_mode
-      if image_mode not in ('On', 'Large', 'Small'):
+      valid = image_mode in ('On', 'Large', 'Small')
+      if not valid:
         response = "Your image mode is set incorrectly. Use +help images to find the right setting"
       else:
         if image_mode in ('On', 'Large'):
@@ -216,6 +217,7 @@ async def flip(ctx, target:discord.Member = "Me"):
   else:
     mode = deck.output_mode
     image_mode = deck.image_mode
+    print(image_mode)
   if target in ["me", "Me", None, ctx.author]: 
     target_user = ctx.author
     owner = ctx.author.id
@@ -238,10 +240,11 @@ async def flip(ctx, target:discord.Member = "Me"):
       else:
         response = owner_display_name +"\'s card is: "+c.var_name(mode=mode)
         if image_mode in ('On', 'Large'):
-          bo = cardimages.single(c)
+          bo = cardimages.single(c, divisor = 1)
           p = embed_bytes(bo)     
         elif image_mode == 'Small':
           bo = cardimages.single(c,divisor=CARD_DIVISOR)
+          p = embed_bytes(bo)    
         else:
           p = (None, None)        
   await ctx.send(response,file=p[0], embed=p[1])
@@ -290,6 +293,7 @@ async def unsleeve(ctx):
         p = embed_bytes(bo)     
       elif image_mode == 'Small':
         bo = cardimages.single(c,divisor=CARD_DIVISOR)
+        p = embed_bytes(bo)
       else:
         p = (None, None)                  
   await ctx.send(response,file=p[0], embed=p[1])
@@ -382,11 +386,7 @@ async def image_mode(ctx, arg:str = "" ):
   #  response =   
   else:
     if mode in valid:
-      #convert on and off inputs into an option
-      if mode == "On":
-        deck.image_mode = True
-      elif mode == "Off":
-        deck.image_mode = False
+      deck.image_mode = mode
       response = ctx.author.display_name + "'s image output mode is now: "+mode
     else:
       response = arg + " is not a valid option. Please use one of:" +str(valid)
