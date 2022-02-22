@@ -105,7 +105,7 @@ class Deck:
   def __init__(self,owner:int):
     self.cards = []
     self.owner = owner
-    self.image_mode = True
+    self.image_mode = "Large"
     self.output_mode = "Long"
     self.build()
     self.reshuffle()    

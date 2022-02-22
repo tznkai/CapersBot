@@ -3,7 +3,7 @@ import logging
 import pickle
 import asyncio
 from typing import Type
-from botocore.exceptions import ClientError
+#from botocore.exceptions import ClientError
 import discord
 import boto3
 from dotenv import load_dotenv
@@ -15,13 +15,16 @@ logging.basicConfig(level=logging.INFO)
 
 #constants
 AUTOSAVE_NAME = "activedecks.pickle"
-AUTOSAVE_INTERVAL = 600
+AUTOSAVE_INTERVAL = 43200
 BUCKET = 'capersbot'
 AWS_OBJECT = 'activedecks.pickle'
 BOT_DEV = os.getenv('BOT_DEV')
 TOKEN = os.getenv('DISCORD_TOKEN')
 CARD_PATH = "./cardimages/"
+CARD_DIVISOR = 10
 
+
+#Use AWS if on Heroku, else do not disturb the pickle file to allow testing
 use_aws = False
 s3 = ""
 if TOKEN is None:
@@ -42,6 +45,8 @@ from capersdecks import Suit
 from capersdecks import Card
 from capersdecks import Deck
 import cardimages
+
+
 #Back up to pickle structure
 import pickle
 active_decks ={}
@@ -118,13 +123,7 @@ print("all prebot is ready")
 def from_guild(ctx):
     return ctx.guild is not None
 
-#embed constructor
-def embed_card(name) ->tuple:
-  f = discord.File(fp=CARD_PATH+name, spoiler=False, filename=name)
-  embed = discord.Embed()
-  embed.set_image(url="attachment://"+name)
-  return (f, embed)
-
+#embed bytes objects
 def embed_bytes(bo):
   bo.seek(0)
   f = discord.File(bo, spoiler=False, filename='embed.png')
@@ -188,12 +187,19 @@ async def show_discards(ctx, sort="No"):
     if len(discards) > 0:
       mode = deck.output_mode
       image_mode = deck.image_mode
-      if image_mode:
-        bo = cardimages.splay(discards)
-        p = embed_bytes(bo) #disable for now until sortition is up.
-      discards = capersdecks.var_name_cards(pile=discards, mode=mode)
-      response = err + ctx.author.display_name+"\'s discards are: "+str(discards)
-      
+      if image_mode not in ('On', 'Large', 'Small'):
+        response = "Your image mode is set incorrectly. Use +help images to find the right setting"
+      else:
+        if image_mode in ('On', 'Large'):
+          divisor = 1
+        elif image_mode == 'Small':
+          divisor = CARD_DIVISOR
+        else:
+          err = "something has gone extremely wrong with the image builder"
+        bo = cardimages.splay(discards, bo=True, divisor=divisor)
+        p = embed_bytes(bo)
+        discards = capersdecks.var_name_cards(pile=discards, mode=mode)
+        response = err + ctx.author.display_name+"\'s discards are: "+str(discards)      
     else:
       response = err+ ctx.author.display_name + " has no discarded cards."
   await ctx.send(response,file=p[0], embed=p[1])
@@ -231,9 +237,11 @@ async def flip(ctx, target:discord.Member = "Me"):
         response = subject + " deck is empty, reshuffle!"
       else:
         response = owner_display_name +"\'s card is: "+c.var_name(mode=mode)
-        if image_mode:
-          image_name = c.image_name()
-          p = embed_card(image_name)           
+        if image_mode in ('On', 'Large'):
+          bo = cardimages.single(c)
+          p = embed_bytes(bo)     
+        elif image_mode == 'Small':
+          bo = cardimages.single(c,divisor=CARD_DIVISOR)
         else:
           p = (None, None)        
   await ctx.send(response,file=p[0], embed=p[1])
@@ -277,9 +285,13 @@ async def unsleeve(ctx):
     else:
       mode = deck.output_mode
       response = ctx.author.display_name+" unsleeves their "+c.var_name(mode=mode)
-      if image_mode:
-        image_name = c.image_name()
-        p = embed_card(image_name)              
+      if image_mode in ('On', 'Large'):
+        bo = cardimages.single(c)
+        p = embed_bytes(bo)     
+      elif image_mode == 'Small':
+        bo = cardimages.single(c,divisor=CARD_DIVISOR)
+      else:
+        p = (None, None)                  
   await ctx.send(response,file=p[0], embed=p[1])
 @bot.command(name='shuffle', brief='Shuffle your discards and draw together', help='Shuffles the draw and discards, leaving sleeve cards and destroyed cards in sleeve and destroyed. You will notice the order of the destroyed cards changes, this is normal.')
 @commands.guild_only()
@@ -358,11 +370,11 @@ async def output_mode(ctx, arg = ""):
     else:
       response = arg +  " is not a valid option. Please use one of:" +str(valid)
   await ctx.send(response)  
-@bot.command(name='images', brief='Show card images or not ', help='On or Off. Images display during flip and discards commands. Can be sent by DM')
+@bot.command(name='images', brief='Show card images or not ', help='Large, Small, or Off. Images display during flip and discards commands. Can be sent by DM')
 async def image_mode(ctx, arg:str = "" ):
   owner = ctx.author.id
   deck = active_decks.get(owner)
-  valid = ('On', 'Off')
+  valid = ('Large', 'Small', 'Off')
   mode = arg.capitalize()  
   if deck is None:
     response = "No such deck. Use the build command."
@@ -370,7 +382,7 @@ async def image_mode(ctx, arg:str = "" ):
   #  response =   
   else:
     if mode in valid:
-      #convert on and off inputs into a boolean
+      #convert on and off inputs into an option
       if mode == "On":
         deck.image_mode = True
       elif mode == "Off":
