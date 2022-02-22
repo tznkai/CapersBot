@@ -24,6 +24,7 @@
   <ItemGroup>
     <Compile Include="CapersBot.py" />
     <Compile Include="capersdecks.py" />
+    <Compile Include="cardimages.py" />
   </ItemGroup>
   <ItemGroup>
     <Interpreter Include="env\">
