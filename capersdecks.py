@@ -102,7 +102,7 @@ class Card:
 
 
 class Deck:
-  def __init__(self,owner:int):
+  def __init__(self,owner:str):
     self.cards = []
     self.owner = owner
     self.image_mode = "Large"

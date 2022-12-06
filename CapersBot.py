@@ -5,9 +5,10 @@ import asyncio
 from typing import Type
 #from botocore.exceptions import ClientError
 import discord
+from discord import app_commands
+from discord.ext import commands
 import boto3
 from dotenv import load_dotenv
-from discord.ext import commands
 import os
 import atexit
 #Turn on logging
@@ -33,10 +34,13 @@ if TOKEN is None:
   #os.chdir(os.getenv('WORKING'))
   BOT_DEV= os.getenv('BOT_DEV')
   TOKEN = os.getenv('DISCORD_TOKEN')
+  TEST_GUILD = discord.Object(id=os.getenv('TEST_GUILD'))
+
 else:
   #set aws, open client
   use_aws = True
   s3 = boto3.client('s3')
+  TEST_GUILD = None
 
 #get modules
 import capersdecks
@@ -119,9 +123,6 @@ print("all prebot is ready")
 #ingests a list of cards and constructs an image
 
 #Discord related functions:
-#checks
-def from_guild(ctx):
-    return ctx.guild is not None
 
 #embed bytes objects
 def embed_bytes(bo):
@@ -134,41 +135,46 @@ def embed_bytes(bo):
   return (f, embed)
 
 #bot setup
-# Change the no_category default string
-help_command = commands.DefaultHelpCommand(
-    no_category = 'Commands')
-# set intents
-#intents = discord.Intents(messages=True, guilds=True, members=True)
-#set bot
-bot = commands.Bot(command_prefix="+")#, intents=intents)
+class AClient(discord.Client):
+  def __init__(self, *, intents: discord.Intents):
+    super().__init__(intents=intents)
+    self.tree = app_commands.CommandTree(self)
+  async def setup_hook(self):
+      # This copies the global commands over to your guild
+      if TEST_GUILD is not None:
+        self.tree.copy_global_to(guild=TEST_GUILD)
+      await self.tree.sync(guild=TEST_GUILD)
+      print("sync command sent.")  
+intents = discord.Intents.default()
+client = AClient(intents=intents)
 
-@bot.event
+
+@client.event
 async def on_ready():
-  print("onready")
-  dev = await bot.fetch_user(BOT_DEV)
-  bot.loop.create_task(backup(AUTOSAVE_INTERVAL))
+  print(f"We have logged in as {client.user}.")  
+  dev = await client.fetch_user(BOT_DEV)
+  client.loop.create_task(backup(AUTOSAVE_INTERVAL))
   #notify if there was a problem with the pickle
   if pickle_problem:
     await dev.send("there was a pickle problem")
-  await dev.send("I have connected, working directory is "+str(os.getcwd()) + " I'm in " + str(len(bot.guilds)) + " servers!")
-#@bot.command(name='soundcheck', help='responds I can still hear you')
-#async def echo_back(ctx):
-#  response = "I can still hear you, "+ctx.author.name
+  await dev.send("I have connected, working directory is "+str(os.getcwd()) + " I'm in " + str(len(client.guilds)) + " servers!")
   
-#  await ctx.send(response)
-@bot.command(name='build', brief='Do this once', help='builds or rebuilds you a fresh deck. This eliminates all of your preferences.')
-@commands.guild_only()
-async def new_deck(ctx):
-  owner=ctx.author.id
+#  await interaction.response.send_message(response)
+@client.tree.command(name='build', description='builds or rebuilds you a fresh deck. This eliminates all of your preferences.')
+@app_commands.guild_only()
+async def new_deck(interaction: discord.Interaction):
+  owner = str(interaction.channel_id) + "_" + str(interaction.user.id)
   deck = Deck(owner = owner)
   active_decks.update({owner:deck})
-  response = "built deck for " + ctx.author.display_name + " with ownerID: "+str(owner)  
-  await ctx.send(response)
+  response = "built deck for " + interaction.user.display_name + " with ownerID: "+owner
+  await interaction.response.send_message(response)
 
-@bot.command(name='discards', brief='List all your discarded cards', help='Shows a list of your discards using your preferred output. To sort, add the Yes argument')
-async def show_discards(ctx, sort="No"):
+@client.tree.command(name='discards', description='Shows a list of your discards using your image setting. Set Sort to Yes to sort.')
+@app_commands.describe(sort='Yes or No, defaults to No.')
+@app_commands.guild_only()
+async def show_discards(interaction: discord.Interaction, sort: str ='No'):
   p = (None,None)
-  owner = ctx.author.id
+  owner = str(interaction.channel_id) + "_" + str(interaction.user.id)
   deck = active_decks.get(owner)
   if deck is None:
     response = "No such deck. Use the build command."  
@@ -189,7 +195,7 @@ async def show_discards(ctx, sort="No"):
       image_mode = deck.image_mode
       valid = image_mode in ('On', 'Large', 'Small')
       if not valid:
-        response = "Your image mode is set incorrectly. Use +help images to find the right setting"
+        response = "Your image mode is set incorrectly. Use /image"
       else:
         if image_mode in ('On', 'Large'):
           divisor = 1
@@ -200,32 +206,39 @@ async def show_discards(ctx, sort="No"):
         bo = cardimages.splay(discards, bo=True, divisor=divisor)
         p = embed_bytes(bo)
         discards = capersdecks.var_name_cards(pile=discards, mode=mode)
-        response = err + ctx.author.display_name+"\'s discards are: "+str(discards)      
+        response = err + interaction.user.display_name+"\'s discards are: "+str(discards)      
     else:
-      response = err+ ctx.author.display_name + " has no discarded cards."
-  await ctx.send(response,file=p[0], embed=p[1])
+      response = err+ interaction.user.display_name + " has no discarded cards."
+    if p[0] is None:
+      await interaction.response.send_message(response, ephemeral = True)
+    else:
+      await interaction.response.send_message(response,file=p[0], embed=p[1], ephemeral=True)
+  
+    
 
-@bot.command(name='flip', brief='Flip the top card of a deck', help='Flips a single card, by default targeting your own deck. You may target another player')
-@commands.guild_only()
-async def flip(ctx, target:discord.Member = "Me"):
+@client.tree.command(name='flip', description='Flips a single card, by default targeting your own deck. You may target another player')
+@app_commands.rename(target='player')
+@app_commands.describe(target="A player\'s nick. You may leave blank to target your own deck")
+@app_commands.guild_only()
+async def flip(interaction: discord.Interaction, target:discord.Member = None ):
   #check if caller has a deck this is used to set preferences
   err = ""
   p = (None, None)
-  deck = active_decks.get(ctx.author.id)
+  deck = active_decks.get(str(interaction.channel_id) + "_" + str(interaction.user.id))
   if deck is None:
     response = "You must build a deck to use this command."
   else:
     mode = deck.output_mode
     image_mode = deck.image_mode
     print(image_mode)
-  if target in ["me", "Me", None, ctx.author]: 
-    target_user = ctx.author
-    owner = ctx.author.id
-    owner_display_name = ctx.author.display_name
+  if target is None: 
+    target_user = interaction.user
+    owner = str(interaction.channel_id) + "_" + str(interaction.user.id)
+    owner_display_name = interaction.user.display_name
     subject ="Your"
   else:
     target_user = target
-    owner = target_user.id
+    owner = str(interaction.channel_id) + "_" + str(target.id)
     owner_display_name = target_user.display_name
     subject = "That"
   if target_user is not None:
@@ -247,17 +260,20 @@ async def flip(ctx, target:discord.Member = "Me"):
           p = embed_bytes(bo)    
         else:
           p = (None, None)        
-  await ctx.send(response,file=p[0], embed=p[1])
+  if p[0] is None:
+    await interaction.response.send_message(response)
+  else:
+    await interaction.response.send_message(response,file=p[0], embed=p[1])
 
 @flip.error
-async def flip_error(ctx, error):
+async def flip_error(interaction, error):
   if isinstance(error, commands.MemberNotFound):
-    await ctx.send('I could not find that member')
+    await interaction.response.send_message('I could not find that member')
   
-@bot.command(name='sleeve', brief='Sleeve the top of the discards', help = 'Put the top of the discards in your sleeve, use the unsleeve command later. Maximum one in a sleeve, does not dynamically track the top of your discard.')
-@commands.guild_only()
-async def sleeve(ctx):
-  owner = ctx.author.id
+@client.tree.command(name='sleeve', description= 'Put the top of the discards in your sleeve, use the unsleeve command later.')
+@app_commands.guild_only()
+async def sleeve(interaction: discord.Interaction):
+  owner = str(interaction.channel_id) + "_" + str(interaction.user.id)
   deck = active_decks.get(owner)
   if deck is None:
     response = "No such deck. Use the build command."  
@@ -269,13 +285,13 @@ async def sleeve(ctx):
     elif s[0] == "fail":
       response = "Nothing to sleeve, you can only sleeve the top of the discards"
     else:
-      response = ctx.author.display_name+" sleeves their "+s[1].var_name(mode=mode)
-  await ctx.send(response)
+      response = interaction.user.display_name+" sleeves their "+s[1].var_name(mode=mode)
+  await interaction.response.send_message(response)
 
-@bot.command(name='unsleeve', brief='Unsleeve the top of the discards', help = 'Unsleeve the top of the discards. This becomes the top of the discard if you made a mistake.')
-@commands.guild_only()
-async def unsleeve(ctx):
-  owner = ctx.author.id
+@client.tree.command(name='unsleeve', description= 'Unsleeve the top of your discard. This becomes the top of the discard if you made a mistake.')
+@app_commands.guild_only()
+async def unsleeve(interaction: discord.Interaction):
+  owner = str(interaction.channel_id) + "_" + str(interaction.user.id)
   deck = active_decks.get(owner)
   p = (None, None)
   if deck is None:
@@ -287,7 +303,7 @@ async def unsleeve(ctx):
       response = "You don't have a sleeved card"
     else:
       mode = deck.output_mode
-      response = ctx.author.display_name+" unsleeves their "+c.var_name(mode=mode)
+      response = interaction.user.display_name+" unsleeves their "+c.var_name(mode=mode)
       if image_mode in ('On', 'Large'):
         bo = cardimages.single(c)
         p = embed_bytes(bo)     
@@ -296,23 +312,27 @@ async def unsleeve(ctx):
         p = embed_bytes(bo)
       else:
         p = (None, None)                  
-  await ctx.send(response,file=p[0], embed=p[1])
-@bot.command(name='shuffle', brief='Shuffle your discards and draw together', help='Shuffles the draw and discards, leaving sleeve cards and destroyed cards in sleeve and destroyed. You will notice the order of the destroyed cards changes, this is normal.')
-@commands.guild_only()
-async def shuffleup(ctx):
-  owner = ctx.author.id
+  if p[0] is None:
+    await interaction.response.send_message(response)
+  else:
+    await interaction.response.send_message(response, file=p[0], embed=p[1])
+
+@client.tree.command(name='shuffle', description='Shuffles the draw and discards, leaving sleeve cards and destroyed cards in sleeve and destroyed.')
+@app_commands.guild_only()
+async def shuffleup(interaction: discord.Interaction):
+  owner = str(interaction.channel_id) + "_" + str(interaction.user.id)
   deck = active_decks.get(owner)
   if deck is None:
     response = "No such deck. Use the build command."  
   else:
     c = deck.reshuffle()
-    response = ctx.author.display_name+" reshuffles their deck"
-  await ctx.send(response)
+    response = interaction.user.display_name+" reshuffles their deck"
+  await interaction.response.send_message(response)
 
-@bot.command(name='nuke', brief= "destroy the top card of your discard", help='Destroys the top card of your discard. For use with the call the gloam power. Use glance to see what cards you have destroyed. Can only be reset by rebuilding your deck.')
-@commands.guild_only()
-async def nuke_card(ctx):
-  owner = ctx.author.id
+@client.tree.command(name='nuke', description='Destroys the top card of your discard. For use with the call the gloam power. Reset with /build')
+@app_commands.guild_only()
+async def nukecard(interaction: discord.Interaction):
+  owner = str(interaction.channel_id) + "_" + str(interaction.user.id)
   deck = active_decks.get(owner)
   if deck is None:
     response = "No such deck. Use the build command."  
@@ -322,13 +342,14 @@ async def nuke_card(ctx):
       response = "Nothing to nuke, you can only nuke the top of the discards"      
     else:
       mode = deck.output_mode
-      response = ctx.author.display_name + " nukes their "+c.var_name(mode=mode)
-  await ctx.send(response)
+      response = interaction.user.display_name+" nukes their "+c.var_name(mode=mode)
+  await interaction.response.send_message(response)
 
 
-@bot.command(name='glance', help='Stats at a glance. Command can be sent by DM')
-async def glance(ctx):
-  owner = ctx.author.id
+@client.tree.command(name='glance', description='Stats at a glance.')
+@app_commands.guild_only()
+async def glance(interaction: discord.Interaction):
+  owner = str(interaction.channel_id) + "_" + str(interaction.user.id)
   deck = active_decks.get(owner)
   if deck is None:
     response = "No such deck. Use the build command."  
@@ -356,12 +377,15 @@ async def glance(ctx):
       destroyed = "no cards"
     else:
       destroyed = str(capersdecks.var_name_cards(pile=destroyed, mode=mode))
-    response = ctx.author.display_name + " has discarded " + discardslen + " cards, has " + drawlen + " cards left in their draw, has destroyed " + destroyed + " and has " + sleeves + ". " + up
-  await ctx.send(response)
+    response = interaction.user.display_name + " has discarded " + discardslen + " cards, has " + drawlen + " cards left in their draw, has destroyed " + destroyed + " and has " + sleeves + ". " + up
+  await interaction.response.send_message(response, ephemeral=True)
 
-@bot.command(name='output', brief='change the format of your cards', help='output accepts one argument. Valid arguments are: emoji, long, short. Can be sent by DM' )
-async def output_mode(ctx, arg = ""):
-  owner = ctx.author.id
+@client.tree.command(name='output', description='Change how cards are displayed in text')
+@app_commands.describe(arg = "emoji, long, short.")
+@app_commands.rename(arg = "style")
+@app_commands.guild_only()
+async def output_mode(interaction: discord.Interaction, arg: str):
+  owner = str(interaction.channel_id) + "_" + str(interaction.user.id)
   deck = active_decks.get(owner)
   valid = ('Emoji', 'Long', 'Short')
   mode = arg.capitalize()  
@@ -370,13 +394,17 @@ async def output_mode(ctx, arg = ""):
   else:
     if mode in valid:
       deck.output_mode = mode
-      response = ctx.author.display_name + "'s output mode is now: "+mode
+      response = interaction.user.display_name + "'s output mode is now: "+mode
     else:
       response = arg +  " is not a valid option. Please use one of:" +str(valid)
-  await ctx.send(response)  
-@bot.command(name='images', brief='Show card images or not ', help='Large, Small, or Off. Images display during flip and discards commands. Can be sent by DM')
-async def image_mode(ctx, arg:str = "" ):
-  owner = ctx.author.id
+  await interaction.response.send_message(response)  
+
+@client.tree.command(name='images', description='Controls whether card images are shown when using the flip and discards command.')
+@app_commands.describe(arg = "Large, Small, or Off")
+@app_commands.rename(arg = "image_mode")
+@app_commands.guild_only()
+async def image_mode(interaction: discord.Interaction, arg: str):
+  owner = str(interaction.channel_id) + "_" + str(interaction.user.id)
   deck = active_decks.get(owner)
   valid = ('Large', 'Small', 'Off')
   mode = arg.capitalize()  
@@ -387,64 +415,68 @@ async def image_mode(ctx, arg:str = "" ):
   else:
     if mode in valid:
       deck.image_mode = mode
-      response = ctx.author.display_name + "'s image output mode is now: "+mode
+      response = interaction.user.display_name +  "'s image output mode is now: "+mode
     else:
       response = arg + " is not a valid option. Please use one of:" +str(valid)
-  await ctx.send(response) 
+  await interaction.response.send_message(response, ephemeral=True) 
 
-@bot.command(name='peek', brief='Peek the top of a deck', help='without arguments, peek targets your own deck, but you must provide both arguments to target someone else\'s deck.')
-@commands.check(from_guild)
-async def peek(ctx, count:int = 1, target: discord.Member ="Me"):
+@client.tree.command(name='peek', description='glances at the top COUNT cards off the top of a draw deck')
+@app_commands.guild_only()
+@app_commands.describe(count = "number of cards you want to view", target = "which player\'s deck you want to target")
+@app_commands.rename(target = "player")
+async def peek(interaction: discord.Interaction, count:int = 1, target: discord.Member =None):
   #check if caller has a deck this is used to set preferences
-  deck = active_decks.get(ctx.author.id)
+  deck = active_decks.get(str(interaction.channel_id) + "_" + str(interaction.user.id))
+  response = None
   if deck is None:
-    response = "you must build a deck to use this command."
+    private_response = "you must build a deck to use this command."
   else:
-    output_mode = deck.output_mode  
+    output_mode = deck.output_mode
     #target self by default, allow converter to handle the rest
-    if target in ["me", "Me", None]: 
-      target_user = ctx.author
-      owner = ctx.author.id
-      owner_display_name = ctx.author.display_name
+    if target is None: 
+      target_user = interaction.user
+      owner = str(interaction.channel_id) + "_" + str(interaction.user.id)
+      owner_display_name = interaction.user.display_name
       subject ="Your"
     else:
       target_user = target
-      owner = target_user.id
+      owner = str(interaction.channel_id) + "_" + str(target.id)
       owner_display_name = target_user.display_name
       subject = "That"
     #get targeted deck    
     deck = active_decks.get(owner)
     if deck is None:
-      response = "No such deck. Use the build command."  
+      private_response = "No such deck. Use the build command."  
     else:
       #get the draw deck
       pile = deck.pile(attribute="Stack", member = "Draw", sort=False, reverse=False)
       #check for empty
       if pile == []:
-        response = subject + " deck is empty, reshuffle!"
+        private_response = subject + " deck is empty, reshuffle!"
       #check for too short
       elif len(pile) < count:
-        response = subject + " deck doesn't have that many cards left"    
+        private_response = subject + " deck doesn't have that many cards left"    
       else:
         #append elements off of the pile and into the deck
         peek_pile = []
         for i in range(count):
           peek_pile.append(pile[i])
-        dm = owner_display_name +"\'s top cards are: " + str(capersdecks.var_name_cards(pile=peek_pile, mode=output_mode))
-        await ctx.author.send(dm)
-        if target_user == ctx.author:
-          response = ctx.author.display_name + " peeks at the top " + str(count) + " cards of their own deck"
+        private_response = owner_display_name +"\'s top cards are: " + str(capersdecks.var_name_cards(pile=peek_pile, mode=output_mode))
+        if target_user == interaction.user:
+          response = interaction.user.display_name + " peeks at the top " + str(count) + " cards of their own deck"
         else:
-          response = ctx.author.display_name + " peeks at the top " + str(count) + " cards of " + owner_display_name + "\'s deck"
-  await ctx.send(response)
+          response = interaction.user.display_name + " peeks at the top " + str(count) + " cards of " + owner_display_name + "\'s deck"
+  await interaction.response.send_message(private_response, ephemeral=True)
+  if response is not None:
+    await client.get_channel(interaction.channel_id).send(response)
 
 @peek.error
-async def peek_error(ctx, error):
+async def peek_error(interaction: discord.Interaction, error):
   if isinstance(error, commands.MemberNotFound):
-    await ctx.send('I could not find that member')
+    await interaction.response.send_message('I could not find that member')
 
-#@bot.command(name='here', brief='show who is here', help='dev command')
-#@commands.guild_only()
+#@client.tree.command(name='here', brief='show who is here', description='dev command')
+#@app_commands.guild_only()
 #async def who_here(ctx):
 #  el = []
 #  for member in ctx.guild.members:
@@ -452,23 +484,23 @@ async def peek_error(ctx, error):
 #    el.append(member.display_name)
 #  response = "channel: " + ctx.channel.name + "guild members: " + str(len(ctx.guild.members)) + str(el)
 
-#  await ctx.send(response)  
+#  await interaction.response.send_message(response)  
 #@output_mode.error
 #async def output_mode_error(self, ctx: commands.Context, error: commands.CommandError):
 #  if isinstance(error, commands.MissingRequiredArgument):
 #    message = "Missing required argument, please supply a mode."
 #  else:
 #    message = "something went wrong!"
-#  await ctx.send(message)
+#  await interaction.response.send_message(message)
 
 #make this development/standalone build only somehow
-#@bot.command(name='save', brief='force the bot to save data', help='forces the bot to save data')
+#@bot.command(name='save', brief='force the bot to save data', description='forces the bot to save data')
 #async def man_save(ctx):
 #  response = "done"
 #  backup()
-#  await ctx.send(response)
+#  await interaction.response.send_message(response)
 
-#@bot.command(name='show', help='outputs the contents of a deck to console for debugging purposes only')
+#@bot.command(name='show', description='outputs the contents of a deck to console for debugging purposes only')
 #async def show_deck(ctx):
 #  owner = ctx.author.id
 #  deck = active_decks.get(owner)
@@ -477,7 +509,7 @@ async def peek_error(ctx, error):
 #  else:
 #    response = "Outputting deck "+str(owner)+" to console"
 #    deck.show()
-#  await ctx.send(response)
+#  await interaction.response.send_message(response)
 
-bot.run(TOKEN)
+client.run(TOKEN)
 
